@@ -1,0 +1,757 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
+
+import type { Session } from "../auth/session";
+import CoverImage from "../components/CoverImage";
+import ListViewToggle from "../components/ListViewToggle";
+import Loading from "../components/Loading";
+import { useToast } from "../components/Toast";
+import { getImgBase } from "../config/endpoints";
+import { getReadProgress } from "../reading/progress";
+
+type LocalFavoriteItem = {
+  aid: string;
+  title: string;
+  author: string;
+  coverUrl: string;
+  addedAt: number;
+  updatedAt: number;
+  latestChapterSort?: string | null;
+};
+
+type LocalFavoritesListResponse = {
+  total?: number;
+  filtered?: number;
+  list?: LocalFavoriteItem[];
+};
+
+type FollowStateEntry = {
+  aid: string;
+  lastKnownChapterId: string;
+  lastKnownChapterSort?: string | null;
+  updatedAt: number;
+};
+
+type LocalFavoritesSort = "lastRead" | "addedAt";
+
+type LocalFavoritesScanSummary = {
+  total: number;
+  scanned: number;
+  updated: number;
+  failed: number;
+  forced: boolean;
+  cancelled: boolean;
+};
+
+type LocalFavoritesScanStatus =
+  | "scanning"
+  | "updated"
+  | "noUpdate"
+  | "failed"
+  | "cancelled";
+
+type LocalFavoritesScanProgressEvent = {
+  scanId: string;
+  aid: string;
+  title: string;
+  status: LocalFavoritesScanStatus;
+  total: number;
+  scanned: number;
+  updated: number;
+  failed: number;
+  latestChapterSort?: string | null;
+  message?: string | null;
+};
+
+type ScanBroadcastRow = {
+  key: string;
+  aid: string;
+  title: string;
+  status: LocalFavoritesScanStatus;
+  latestChapterSort?: string | null;
+  message?: string | null;
+};
+
+const LOCAL_FAVORITES_SCAN_PROGRESS_EVENT = "local-favorites-scan-progress";
+
+export default function LocalFavoritesPage(props: {
+  session: Session;
+  onOpenComic: (aid: string) => void;
+  onOpenReader: (
+    aid: string,
+    chapterId: string,
+    chapterTitle: string,
+    chapters: Array<{ id: string | number; sort?: string | number; name?: string }>,
+    startPage?: number,
+  ) => void;
+}) {
+  const viewKey = "jm_view_local_favorites";
+  const typeFilterKey = "jm_type_local_favorites";
+  const sortKey = "jm_sort_local_favorites";
+  const [viewMode, setViewMode] = useState<"list" | "card">(() => {
+    try {
+      const v = localStorage.getItem(viewKey);
+      return v === "card" ? "card" : "list";
+    } catch {
+      return "list";
+    }
+  });
+  const [items, setItems] = useState<LocalFavoriteItem[]>([]);
+  const [stats, setStats] = useState<{ total: number; filtered: number }>({
+    total: 0,
+    filtered: 0,
+  });
+  const [followSet, setFollowSet] = useState<Set<string>>(() => new Set());
+  const [loading, setLoading] = useState(false);
+  const [scanLatestLoading, setScanLatestLoading] = useState(false);
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [scanProgress, setScanProgress] = useState({
+    total: 0,
+    scanned: 0,
+    updated: 0,
+    failed: 0,
+  });
+  const [scanRows, setScanRows] = useState<ScanBroadcastRow[]>([]);
+  const [scanCompleted, setScanCompleted] = useState(false);
+  const [openReaderLoading, setOpenReaderLoading] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "single" | "multi">(() => {
+    try {
+      const v = localStorage.getItem(typeFilterKey);
+      if (v === "single" || v === "multi") return v;
+      return "all";
+    } catch {
+      return "all";
+    }
+  });
+  const [sortMode, setSortMode] = useState<LocalFavoritesSort>(() => {
+    try {
+      const v = localStorage.getItem(sortKey);
+      return v === "addedAt" ? "addedAt" : "lastRead";
+    } catch {
+      return "lastRead";
+    }
+  });
+  const scanIdRef = useRef("");
+  const { showToast } = useToast();
+
+  const load = async (kind = typeFilter) => {
+    setError("");
+    setLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const res = await invoke<LocalFavoritesListResponse | LocalFavoriteItem[]>(
+        "api_local_favorites_list",
+        { kind },
+      );
+      const list = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.list)
+          ? res.list
+          : [];
+      const total = Array.isArray(res)
+        ? list.length
+        : typeof res?.total === "number"
+          ? res.total
+          : list.length;
+      const filtered = Array.isArray(res)
+        ? list.length
+        : typeof res?.filtered === "number"
+          ? res.filtered
+          : list.length;
+      setItems(list);
+      setStats({ total, filtered });
+      const follow = await invoke<FollowStateEntry[]>("api_follow_state_list");
+      const set = new Set(
+        Array.isArray(follow) ? follow.map((f) => String(f.aid)) : [],
+      );
+      setFollowSet(set);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setItems([]);
+      setStats({ total: 0, filtered: 0 });
+      setFollowSet(new Set());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load(typeFilter);
+  }, [typeFilter]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(viewKey, viewMode);
+    } catch {
+      // ignore
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(typeFilterKey, typeFilter);
+    } catch {
+      // ignore
+    }
+  }, [typeFilter]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(sortKey, sortMode);
+    } catch {
+      // ignore
+    }
+  }, [sortMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    const setup = async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        const off = await listen<LocalFavoritesScanProgressEvent>(
+          LOCAL_FAVORITES_SCAN_PROGRESS_EVENT,
+          (event) => {
+            const payload = event.payload;
+            if (!payload) return;
+            if (!scanIdRef.current || payload.scanId !== scanIdRef.current) return;
+            setScanProgress((prev) => ({
+              total: Number.isFinite(payload.total) ? payload.total : prev.total,
+              scanned: Number.isFinite(payload.scanned) ? payload.scanned : prev.scanned,
+              updated: Number.isFinite(payload.updated) ? payload.updated : prev.updated,
+              failed: Number.isFinite(payload.failed) ? payload.failed : prev.failed,
+            }));
+            const key = payload.aid && payload.aid.trim() ? payload.aid : `meta-${payload.status}`;
+            const row: ScanBroadcastRow = {
+              key,
+              aid: payload.aid ?? "",
+              title: payload.title ?? "",
+              status: payload.status,
+              latestChapterSort: payload.latestChapterSort ?? null,
+              message: payload.message ?? null,
+            };
+            setScanRows((prev) => {
+              const rest = prev.filter((x) => x.key !== key);
+              return [row, ...rest].slice(0, 300);
+            });
+          },
+        );
+        if (cancelled) {
+          off();
+          return;
+        }
+        unlisten = off;
+      } catch {
+        // ignore in non-tauri test/runtime
+      }
+    };
+    void setup();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const remove = async (aid: string) => {
+    setError("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke<boolean>("api_local_favorite_toggle", {
+        aid,
+        title: null,
+        author: null,
+        coverUrl: null,
+      });
+      await load();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+    }
+  };
+
+  const makeScanId = () => `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+  const formatScanRowText = (row: ScanBroadcastRow) => {
+    if (row.status === "scanning") return "扫描中";
+    if (row.status === "updated") {
+      if (row.latestChapterSort) return `扫描完成，最新第${row.latestChapterSort}话`;
+      return "扫描完成，最新信息已更新";
+    }
+    if (row.status === "noUpdate") return "扫描完成，无更新";
+    if (row.status === "failed") return `扫描失败${row.message ? `：${row.message}` : ""}`;
+    return "扫描已取消";
+  };
+
+  const scanLatestChapters = async () => {
+    if (scanLatestLoading) return;
+    setError("");
+    const scanId = makeScanId();
+    scanIdRef.current = scanId;
+    setScanRows([]);
+    setScanCompleted(false);
+    setScanProgress({
+      total: Math.max(0, Number(stats.filtered || 0)),
+      scanned: 0,
+      updated: 0,
+      failed: 0,
+    });
+    setScanModalOpen(true);
+    setScanLatestLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const summary = await invoke<LocalFavoritesScanSummary>("api_local_favorites_scan_latest", {
+        kind: "multi",
+        scanId,
+      });
+      setScanProgress({
+        total: summary.total,
+        scanned: summary.scanned,
+        updated: summary.updated,
+        failed: summary.failed,
+      });
+      setScanCompleted(true);
+      await load("multi");
+      const failedText = summary.failed > 0 ? `，失败 ${summary.failed} 本` : "";
+      const cancelledText = summary.cancelled ? "（已取消）" : "";
+      showToast({
+        ok: true,
+        text: `扫描完成${cancelledText}：共 ${summary.total} 本，已扫描 ${summary.scanned} 本，更新 ${summary.updated} 本${failedText}`,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setScanCompleted(true);
+      showToast({ ok: false, text: `扫描失败：${msg}` });
+    } finally {
+      setScanLatestLoading(false);
+    }
+  };
+
+  const cancelScanLatest = async () => {
+    if (!scanLatestLoading || !scanIdRef.current) {
+      setScanModalOpen(false);
+      if (!scanLatestLoading) {
+        scanIdRef.current = "";
+      }
+      return;
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("api_local_favorites_scan_cancel", { scanId: scanIdRef.current });
+      showToast({ ok: true, text: "已请求取消扫描" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast({ ok: false, text: `取消失败：${msg}` });
+    }
+  };
+
+  const formatChapterTitle = (c: { id: string | number; sort?: string | number; name?: string }) =>
+    `第${c.sort ?? "?"}话${c.name ? `：${c.name}` : ""}`;
+
+  const getReadHint = (
+    item: LocalFavoriteItem,
+    progress: ReturnType<typeof getReadProgress>,
+  ) => {
+    const isMulti = Boolean(item.latestChapterSort);
+    if (isMulti) {
+      if (progress?.chapterSort) {
+        return `阅读至：第${progress.chapterSort}话`;
+      }
+      return progress?.chapterId ? "阅读至：已读章节" : "";
+    }
+    return progress?.pageIndex ? `阅读至：第${progress.pageIndex}页` : "";
+  };
+
+  const openReaderFromAid = async (aid: string, progress: ReturnType<typeof getReadProgress>) => {
+    setError("");
+    if (openReaderLoading[aid]) return;
+    setOpenReaderLoading((prev) => ({ ...prev, [aid]: true }));
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const raw = await invoke<any>("api_album", {
+        id: aid,
+        cookies: props.session.cookies,
+      });
+      const series = Array.isArray(raw?.series) ? raw.series : [];
+      const chapters =
+        series.length > 0
+          ? [...series].sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0))
+          : [
+              {
+                id: raw?.id ?? aid,
+                sort: 1,
+                name: "",
+              },
+            ];
+
+      const first = chapters[0];
+      const target =
+        progress?.chapterId != null
+          ? chapters.find((c) => String(c.id) === String(progress.chapterId))
+          : null;
+      const chosen = target ?? first ?? { id: aid, sort: 1, name: "" };
+      const chapterId = String(chosen.id ?? aid);
+      const chapterTitle = formatChapterTitle(chosen);
+      const startPage = target ? progress?.pageIndex ?? 1 : 1;
+      props.onOpenReader(aid, chapterId, chapterTitle, chapters, startPage);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      showToast({ ok: false, text: `打开阅读失败：${msg}` });
+    } finally {
+      setOpenReaderLoading((prev) => ({ ...prev, [aid]: false }));
+    }
+  };
+
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    const filtered = !q
+      ? items
+      : items.filter((x) => {
+          return (
+            x.aid.toLowerCase().includes(q) ||
+            x.title.toLowerCase().includes(q) ||
+            x.author.toLowerCase().includes(q)
+          );
+        });
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortMode === "addedAt") {
+        if (b.addedAt !== a.addedAt) return b.addedAt - a.addedAt;
+        return b.updatedAt - a.updatedAt;
+      }
+      const aRead = Number(getReadProgress(a.aid)?.updatedAt ?? 0);
+      const bRead = Number(getReadProgress(b.aid)?.updatedAt ?? 0);
+      if (bRead !== aRead) return bRead - aRead;
+      if (b.addedAt !== a.addedAt) return b.addedAt - a.addedAt;
+      return b.updatedAt - a.updatedAt;
+    });
+    return sorted;
+  }, [filter, items, sortMode]);
+
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
+        收藏(本地) · 当前：{stats.filtered}
+        <span className="text-zinc-400">（总数：{stats.total}）</span>
+      </div>
+
+      <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 text-sm font-medium text-zinc-900">列表</div>
+
+        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 pb-3">
+          <div className="flex h-9 shrink-0 rounded-md border border-zinc-200 bg-white p-0.5 text-sm">
+            {(
+              [
+                { key: "all", label: "全选" },
+                { key: "single", label: "单话" },
+                { key: "multi", label: "多话" },
+              ] as const
+            ).map((opt) => {
+              const active = typeFilter === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={`h-8 rounded-sm px-3 text-sm ${
+                    active ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  onClick={() => setTypeFilter(opt.key)}
+                  aria-pressed={active}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex h-9 shrink-0 rounded-md border border-zinc-200 bg-white p-0.5 text-sm">
+            {(
+              [
+                { key: "lastRead", label: "最后阅读时间" },
+                { key: "addedAt", label: "收藏时间" },
+              ] as const
+            ).map((opt) => {
+              const active = sortMode === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={`h-8 rounded-sm px-3 text-sm ${
+                    active ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  onClick={() => setSortMode(opt.key)}
+                  aria-pressed={active}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <input
+            className="h-9 min-w-[180px] flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm"
+            placeholder="过滤：标题/作者/AID"
+            value={filter}
+            onChange={(e) => setFilter(e.currentTarget.value)}
+          />
+          <button
+            type="button"
+            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            刷新
+          </button>
+          <ListViewToggle value={viewMode} onChange={setViewMode} />
+        </div>
+
+        {typeFilter === "multi" ? (
+          <div className="mt-3 flex items-center justify-end">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+              onClick={() => {
+                void scanLatestChapters();
+              }}
+              disabled={loading || scanLatestLoading}
+            >
+              {scanLatestLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {scanLatestLoading ? "扫描中..." : "扫描多话最新章节"}
+            </button>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mt-3 rounded-md border border-zinc-200 bg-white p-2 text-sm text-red-600">
+            {error}
+          </div>
+        ) : null}
+
+        {loading ? <Loading /> : null}
+
+        {viewMode === "card" ? (
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+            {visible.map((it) => {
+              const cover =
+                it.coverUrl?.trim() || `${getImgBase()}/media/albums/${it.aid}_3x4.jpg`;
+              const progress = it.aid ? getReadProgress(it.aid) : null;
+              const readHint = getReadHint(it, progress);
+              const isFollowed = followSet.has(it.aid);
+              return (
+                <div
+                  key={it.aid}
+                  className="relative flex h-full flex-col overflow-hidden rounded-md border border-zinc-200 bg-white"
+                >
+                  <button
+                    type="button"
+                    className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-100"
+                    onClick={() => props.onOpenComic(it.aid)}
+                  >
+                    <CoverImage
+                      src={cover}
+                      alt={it.title || `AID ${it.aid}`}
+                      className="h-full w-full object-cover"
+                    />
+                  </button>
+                  <div className="flex flex-1 flex-col p-2">
+                    <button
+                      type="button"
+                      className="text-left text-sm font-medium text-zinc-900 hover:underline"
+                      onClick={() => props.onOpenComic(it.aid)}
+                    >
+                      <span className="block h-10 line-clamp-2 leading-5">
+                        {it.title || `AID ${it.aid}`}
+                      </span>
+                    </button>
+                    <div className="mt-1 flex flex-1 flex-col gap-1">
+                      <div className="truncate text-xs text-zinc-600">
+                        {it.author ? `作者：${it.author}` : "作者：—"}
+                      </div>
+                      {isFollowed ? (
+                        <div className="absolute right-2 top-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                          已追更
+                        </div>
+                      ) : null}
+                      {readHint ? <div className="text-xs text-zinc-500">{readHint}</div> : null}
+                      {it.latestChapterSort ? (
+                        <div className="text-xs text-zinc-500">
+                          最新：第{it.latestChapterSort}话
+                        </div>
+                      ) : null}
+                      <div className="truncate text-xs text-zinc-500">AID：{it.aid}</div>
+                      <div className="mt-auto flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="h-7 flex-1 rounded-md border border-zinc-200 bg-white text-xs text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                          onClick={() => openReaderFromAid(it.aid, progress)}
+                          disabled={!!openReaderLoading[it.aid]}
+                        >
+                          <span className="relative flex items-center justify-center">
+                            {openReaderLoading[it.aid] ? (
+                              <Loader2 className="absolute left-1 h-3 w-3 animate-spin" />
+                            ) : null}
+                            {progress?.chapterId ? "继续阅读" : "阅读"}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="h-7 flex-1 rounded-md border border-zinc-200 bg-white text-xs text-red-600 hover:bg-zinc-50"
+                          onClick={() => void remove(it.aid)}
+                        >
+                          取消本地
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-3 flex min-w-0 flex-col gap-2">
+            {visible.map((it) => {
+              const cover =
+                it.coverUrl?.trim() || `${getImgBase()}/media/albums/${it.aid}_3x4.jpg`;
+              const progress = it.aid ? getReadProgress(it.aid) : null;
+              const readHint = getReadHint(it, progress);
+              const isFollowed = followSet.has(it.aid);
+              return (
+                <div
+                  key={it.aid}
+                  className="relative flex min-w-0 flex-col gap-2 overflow-hidden rounded-md border border-zinc-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:gap-3"
+                >
+                  <div className="flex w-full min-w-0 items-center gap-3 sm:flex-1">
+                    <div className="h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
+                      <CoverImage
+                        src={cover}
+                        alt={it.title || `AID ${it.aid}`}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        className="line-clamp-2 w-full text-left text-sm font-medium text-zinc-900 hover:underline"
+                        onClick={() => props.onOpenComic(it.aid)}
+                      >
+                        {it.title || `AID ${it.aid}`}
+                      </button>
+                      {isFollowed ? (
+                        <div className="absolute right-2 top-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                          已追更
+                        </div>
+                      ) : null}
+                      {readHint ? (
+                        <div className="mt-1 text-xs text-zinc-500">{readHint}</div>
+                      ) : null}
+                      {it.latestChapterSort ? (
+                        <div className="mt-1 text-xs text-zinc-500">
+                          最新：第{it.latestChapterSort}话
+                        </div>
+                      ) : null}
+                      <div className="truncate text-xs text-zinc-600">
+                        {it.author ? `作者：${it.author} · ` : ""}
+                        AID：{it.aid}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-none sm:justify-end">
+                    <button
+                      type="button"
+                      className="h-8 whitespace-nowrap rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                      onClick={() => openReaderFromAid(it.aid, progress)}
+                      disabled={!!openReaderLoading[it.aid]}
+                    >
+                      <span className="relative flex items-center justify-center">
+                        {openReaderLoading[it.aid] ? (
+                          <Loader2 className="absolute left-1 h-3 w-3 animate-spin" />
+                        ) : null}
+                        {progress?.chapterId ? "继续阅读" : "阅读"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="h-8 whitespace-nowrap rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => props.onOpenComic(it.aid)}
+                    >
+                      详情
+                    </button>
+                    <button
+                      type="button"
+                      className="h-8 whitespace-nowrap rounded-md border border-zinc-200 bg-white px-2 text-sm text-red-600 hover:bg-zinc-50"
+                      onClick={() => void remove(it.aid)}
+                    >
+                      取消本地
+                    </button>
+                  </div>
+                </div>
+            );
+            })}
+          </div>
+        )}
+        {!visible.length && !loading ? (
+          <div className="text-sm text-zinc-600">暂无本地收藏</div>
+        ) : null}
+      </div>
+
+      {scanModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="glass flex h-[min(78vh,640px)] w-full max-w-2xl flex-col rounded-2xl p-4">
+            <div className="text-base font-semibold text-zinc-900">扫描多话最新章节</div>
+
+            <div className="mt-3 flex items-center justify-between gap-3 text-sm text-zinc-700">
+              <div className="inline-flex items-center gap-2">
+                {scanLatestLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                <span>{scanLatestLoading ? "扫描中..." : "扫描完成"}</span>
+              </div>
+              <div className="text-zinc-600">
+                进度：
+                <span className="font-medium text-zinc-900">
+                  {scanProgress.scanned}/{scanProgress.total}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 flex-1 overflow-y-auto rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              {scanRows.length === 0 ? (
+                <div className="text-sm text-zinc-500">等待扫描播报...</div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {scanRows.map((row) => (
+                    <div
+                      key={row.key}
+                      className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <div className="truncate font-medium text-zinc-900">{row.title || "未知漫画"}</div>
+                      <div
+                        className={`mt-1 text-xs ${
+                          row.status === "failed" ? "text-red-600" : "text-zinc-600"
+                        }`}
+                      >
+                        {formatScanRowText(row)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                className="h-9 rounded-md border border-zinc-200 bg-white px-4 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                onClick={() => {
+                  void cancelScanLatest();
+                }}
+                disabled={scanLatestLoading && !scanIdRef.current}
+              >
+                {scanLatestLoading ? "取消扫描" : scanCompleted ? "关闭" : "取消"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

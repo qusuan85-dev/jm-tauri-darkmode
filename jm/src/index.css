@@ -1,0 +1,339 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+ * Design tokens
+ * --------------------------------------------------------------------------
+ * The UI is written against the `zinc` neutral scale plus `white` card
+ * surfaces. Both resolve through the custom properties below (see
+ * tailwind.config.cjs), so toggling the `dark` class — or the `data-accent`
+ * attribute — on <html> re-maps every colour in the app at once.
+ *
+ * Channels are stored as "R G B" so Tailwind's `/opacity` modifiers keep
+ * working (e.g. `bg-white/95`).
+ * ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --jm-surface: 255 255 255; /* cards, popovers, toolbars (`bg-white`)        */
+  --jm-zinc-50: 250 250 250; /* inset panels + hover/selected feedback        */
+  --jm-zinc-100: 244 244 245; /* window background                            */
+  --jm-hairline: 244 244 245; /* extra-subtle separators                     */
+
+  /* Neutral scale */
+  --jm-zinc-200: 228 228 231; /* borders / dividers                            */
+  --jm-zinc-300: 212 212 216; /* strong borders                               */
+  --jm-zinc-400: 161 161 170; /* placeholders, faint text                     */
+  --jm-zinc-500: 113 113 122; /* muted text                                   */
+  --jm-zinc-600: 82 82 91; /* secondary text                                  */
+  --jm-zinc-700: 63 63 70; /* body text                                       */
+  --jm-zinc-800: 39 39 42; /* emphasised text, hover fill                      */
+  --jm-zinc-900: 24 24 27; /* primary text + inverted (dark) fills             */
+  --jm-zinc-950: 9 9 11; /* press states                                       */
+
+  /* Frosted-glass surfaces ("liquid glass"): translucency, a specular top
+     edge and an outer drop shadow. Only used on the floating bottom bar and
+     on overlays, never on large content areas. */
+  --jm-glass-alpha: 0.72;
+  --jm-glass-line-alpha: 0.7;
+  --jm-glass-highlight-alpha: 0.75;
+  --jm-glass-shadow-alpha: 0.16;
+  --jm-glass-blur: 18px;
+
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-top: var(--safe-area-inset-top);
+  --safe-area-bottom: var(--safe-area-inset-bottom);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Cards sit one step above the window; `zinc-50` stays the *recessive*
+     tone it is in light mode, so insets keep reading as insets and the
+     ubiquitous `hover:bg-zinc-50` keeps the same subtle delta. */
+  --jm-surface: 24 24 27;
+  --jm-zinc-50: 19 19 22;
+  --jm-zinc-100: 9 9 11;
+  --jm-hairline: 35 35 39;
+
+  --jm-zinc-200: 45 45 51;
+  --jm-zinc-300: 63 63 70;
+  --jm-zinc-400: 138 138 148;
+  --jm-zinc-500: 161 161 170;
+  --jm-zinc-600: 180 180 189;
+  --jm-zinc-700: 212 212 216;
+  --jm-zinc-800: 228 228 231;
+  --jm-zinc-900: 244 244 245;
+  --jm-zinc-950: 250 250 250;
+
+  --jm-glass-alpha: 0.62;
+  --jm-glass-line-alpha: 0.14;
+  --jm-glass-highlight-alpha: 0.09;
+  --jm-glass-shadow-alpha: 0.5;
+}
+
+/* ==========================================================================
+ * Accent presets
+ * --------------------------------------------------------------------------
+ * Six hues plus a monochrome "default" that reproduces the original look.
+ * Light mode uses a deep fill with white text; dark mode flips to a bright
+ * fill with near-black text, which is both prettier on dark surfaces and
+ * keeps contrast above 7:1 for every hue.
+ * ========================================================================== */
+
+/* Fallback (no attribute yet, i.e. before the pre-paint script runs) = blue. */
+:root,
+:root[data-accent="blue"] {
+  --jm-accent: 37 99 235;
+  --jm-accent-strong: 29 78 216;
+  --jm-accent-fg: 255 255 255;
+}
+
+:root[data-accent="default"] {
+  --jm-accent: 24 24 27;
+  --jm-accent-strong: 39 39 42;
+  --jm-accent-fg: 255 255 255;
+}
+
+:root[data-accent="purple"] {
+  --jm-accent: 124 58 237;
+  --jm-accent-strong: 109 40 217;
+  --jm-accent-fg: 255 255 255;
+}
+
+:root[data-accent="cyan"] {
+  --jm-accent: 21 94 117;
+  --jm-accent-strong: 14 116 144;
+  --jm-accent-fg: 255 255 255;
+}
+
+:root[data-accent="green"] {
+  --jm-accent: 22 101 52;
+  --jm-accent-strong: 21 128 61;
+  --jm-accent-fg: 255 255 255;
+}
+
+:root[data-accent="amber"] {
+  --jm-accent: 180 83 9;
+  --jm-accent-strong: 146 64 14;
+  --jm-accent-fg: 255 255 255;
+}
+
+:root[data-accent="pink"] {
+  --jm-accent: 190 24 93;
+  --jm-accent-strong: 157 23 77;
+  --jm-accent-fg: 255 255 255;
+}
+
+.dark,
+.dark[data-accent="blue"] {
+  --jm-accent: 96 165 250;
+  --jm-accent-strong: 147 197 253;
+  --jm-accent-fg: 9 9 11;
+}
+
+.dark[data-accent="default"] {
+  --jm-accent: 244 244 245;
+  --jm-accent-strong: 228 228 231;
+  --jm-accent-fg: 9 9 11;
+}
+
+.dark[data-accent="purple"] {
+  --jm-accent: 167 139 250;
+  --jm-accent-strong: 196 181 253;
+  --jm-accent-fg: 9 9 11;
+}
+
+.dark[data-accent="cyan"] {
+  --jm-accent: 34 211 238;
+  --jm-accent-strong: 103 232 249;
+  --jm-accent-fg: 9 9 11;
+}
+
+.dark[data-accent="green"] {
+  --jm-accent: 74 222 128;
+  --jm-accent-strong: 134 239 172;
+  --jm-accent-fg: 9 9 11;
+}
+
+.dark[data-accent="amber"] {
+  --jm-accent: 251 191 36;
+  --jm-accent-strong: 252 211 77;
+  --jm-accent-fg: 9 9 11;
+}
+
+.dark[data-accent="pink"] {
+  --jm-accent: 244 114 182;
+  --jm-accent-strong: 249 168 212;
+  --jm-accent-fg: 9 9 11;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+@layer base {
+  /* Keep the window / overscroll area on the page colour so no light strip
+     flashes behind the app in dark mode. */
+  html {
+    background-color: rgb(var(--jm-zinc-100));
+  }
+
+  /* Native controls (checkboxes, radios, sliders) follow the accent instead of
+     the platform blue. */
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="range"],
+  progress {
+    accent-color: rgb(var(--jm-accent));
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--jm-accent) / 0.55);
+    outline-offset: 2px;
+  }
+}
+
+/* ==========================================================================
+ * Dark-mode + accent re-mapping
+ * --------------------------------------------------------------------------
+ * Only the handful of utilities whose light-mode colour cannot be derived from
+ * the neutral scale are special-cased here. Keeping them in the `components`
+ * layer (rather than after the utilities) is deliberate: it lets variant
+ * utilities such as `hover:bg-zinc-50` still win over the base background
+ * while out-specifying the plain `bg-*` / `text-*` utility they replace.
+ * ========================================================================== */
+
+@layer components {
+  /* `white` is a surface, not a literal colour. */
+  .dark .bg-white {
+    background-color: rgb(var(--jm-surface));
+  }
+
+  .dark .bg-white\/95 {
+    background-color: rgb(var(--jm-surface) / 0.95);
+  }
+
+  /* Hairlines stay hairlines instead of turning into dark rules. */
+  .dark .border-zinc-100 {
+    border-color: rgb(var(--jm-hairline));
+  }
+
+  .dark .divide-zinc-100 > :not([hidden]) ~ :not([hidden]) {
+    border-color: rgb(var(--jm-hairline));
+  }
+
+  /* --- Accent ------------------------------------------------------------
+   * `bg-zinc-900 text-white` is the app's inverted "primary" fill: primary
+   * buttons, active segments, selected chips. Routing it through the accent
+   * covers every one of those call sites from a single rule, in both themes.
+   * The `html` prefix lifts these above variant utilities such as
+   * `hover:bg-zinc-800`. */
+  html .bg-zinc-900.text-white {
+    background-color: rgb(var(--jm-accent));
+    border-color: rgb(var(--jm-accent));
+    color: rgb(var(--jm-accent-fg));
+  }
+
+  html .hover\:bg-zinc-800:hover {
+    background-color: rgb(var(--jm-accent-strong));
+  }
+
+  html .active\:bg-zinc-950:active {
+    background-color: rgb(var(--jm-accent-strong));
+  }
+
+  /* Links / info text that used to be hard-coded blue. */
+  html .text-blue-600 {
+    color: rgb(var(--jm-accent));
+  }
+
+  html .hover\:text-blue-500:hover {
+    color: rgb(var(--jm-accent-strong));
+  }
+
+  /* Focus affordances follow the accent. */
+  html .focus\:ring-zinc-200:focus {
+    --tw-ring-color: rgb(var(--jm-accent) / 0.45);
+  }
+
+  html .focus\:border-zinc-400:focus {
+    border-color: rgb(var(--jm-accent));
+  }
+
+  /* --- Liquid glass ------------------------------------------------------
+   * A translucent, blurred, saturated surface with a specular top edge. Used
+   * only for the floating bottom bar and for overlays. */
+  .glass {
+    background-color: rgb(var(--jm-surface) / var(--jm-glass-alpha));
+    -webkit-backdrop-filter: blur(var(--jm-glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--jm-glass-blur)) saturate(180%);
+    border: 1px solid rgb(255 255 255 / var(--jm-glass-line-alpha));
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / var(--jm-glass-highlight-alpha)),
+      0 12px 32px -14px rgb(0 0 0 / var(--jm-glass-shadow-alpha));
+  }
+
+  /* Slightly denser, for bars that carry small text. */
+  .glass-nav {
+    background-color: rgb(var(--jm-surface) / calc(var(--jm-glass-alpha) + 0.12));
+  }
+
+  /* Dark-scrim bubbles that sit on top of reader images. */
+  .glass-scrim {
+    background-color: rgb(0 0 0 / 0.5);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
+    border: 1px solid rgb(255 255 255 / 0.16);
+    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.12);
+  }
+
+  /* Without backdrop blur a translucent bar would just look washed out. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass,
+    .glass-nav {
+      background-color: rgb(var(--jm-surface) / 0.97);
+    }
+
+    .glass-scrim {
+      background-color: rgb(0 0 0 / 0.78);
+    }
+  }
+
+  /* --- Accent tints used by navigation -------------------------------- */
+  .nav-active {
+    background-color: rgb(var(--jm-accent) / 0.12);
+    border-color: rgb(var(--jm-accent) / 0.35);
+    color: rgb(var(--jm-accent));
+  }
+}
+
+.safe-area-top {
+  padding-top: var(--safe-area-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: var(--safe-area-bottom, 0px);
+}
+
+/* The bottom bar floats above the page edge, so the reserved space has to
+   account for the bar itself plus its inset and breathing room. */
+.home-mobile-safe-bottom {
+  padding-bottom: calc(5.5rem + var(--safe-area-bottom, 0px));
+}
+
+.mobile-bottom-nav {
+  bottom: calc(var(--safe-area-bottom, 0px) + 0.5rem);
+}
+
+@media (min-width: 768px) {
+  .home-mobile-safe-bottom {
+    padding-bottom: 1.5rem;
+  }
+}

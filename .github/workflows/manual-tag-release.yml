@@ -1,0 +1,299 @@
+name: Manual Tag Build and Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create-tag:
+    name: Create tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version_name: ${{ steps.tag.outputs.version_name }}
+      dev_version_name: ${{ steps.tag.outputs.dev_version_name }}
+      version_code: ${{ steps.tag.outputs.version_code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate tag and version
+        id: tag
+        run: |
+          ts="$(date +%Y%m%d-%H%M%S)"
+          stamp="$(date +%Y%m%d%H%M%S)"
+          version_code="$(date +%s)"
+          base_version="$(
+            python3 - <<'PY'
+          import json
+          import re
+          with open('jm/src-tauri/tauri.conf.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+          v = str(data.get('version', '')).strip()
+          m = re.match(r'^(\d+)\.(\d+)\.(\d+)', v)
+          if not m:
+              raise SystemExit(f'invalid version: {v}')
+          print('.'.join(m.groups()))
+          PY
+          )"
+          short="$(git rev-parse --short HEAD 2>/dev/null || true)"
+          tag="jm-${ts}"
+          version_name="${base_version}+${tag}"
+          dev_version_name="${base_version}+${stamp}"
+          if [ -n "$short" ]; then
+            dev_version_name="${dev_version_name}.g${short}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
+          echo "dev_version_name=${dev_version_name}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${version_code}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.tag.outputs.tag }}"
+          git push origin "${{ steps.tag.outputs.tag }}"
+
+  build-desktop:
+    name: Build Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: create-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: jm
+
+      - name: Install Linux system deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libglib2.0-dev
+
+      - name: Write Tauri override config (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cat > tauri.override.json <<EOF
+          {"version":"${{ needs.create-tag.outputs.version_name }}","bundle":{"active":false}}
+          EOF
+        working-directory: jm
+
+      - name: Write Tauri override config
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          cat > tauri.override.json <<EOF
+          {"version":"${{ needs.create-tag.outputs.version_name }}"}
+          EOF
+        working-directory: jm
+
+      - name: Build Tauri app
+        run: pnpm tauri build --config tauri.override.json
+        working-directory: jm
+
+      - name: Upload Windows exe
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: jm/src-tauri/target/release/jm.exe
+
+      - name: Upload desktop bundles
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.os }}
+          path: jm/src-tauri/target/release/bundle/**
+
+  build-android:
+    name: Build Android (APK)
+    runs-on: ubuntu-latest
+    needs: create-tag
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android components
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;29.0.13846066"
+          yes | sdkmanager --licenses
+
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: jm
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+
+      - name: Write Tauri override config
+        run: |
+          cat > tauri.override.json <<EOF
+          {"version":"${{ needs.create-tag.outputs.version_name }}","bundle":{"android":{"versionCode":${{ needs.create-tag.outputs.version_code }}}}}
+          EOF
+        working-directory: jm
+
+      - name: Build APK
+        run: cargo tauri android build --config tauri.override.json
+        working-directory: jm
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.13846066
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: jm/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+
+  release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: [create-tag, build-desktop, build-android]
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/*; do
+            name="$(basename "$dir")"
+            if [ "$name" = "android-apk" ]; then
+              apk="$(find "$dir" -name "app-universal-release.apk" -print -quit)"
+              if [ -n "$apk" ]; then
+                cp "$apk" "release/jm.apk"
+              fi
+              continue
+            fi
+            if [ "$name" = "windows-exe" ]; then
+              exe="$(find "$dir" -name "jm.exe" -print -quit)"
+              if [ -n "$exe" ]; then
+                rm -rf release/jm
+                mkdir -p release/jm
+                cp "$exe" "release/jm/jm.exe"
+                (cd release && zip -r "jm-windows.zip" "jm")
+                rm -rf release/jm
+              fi
+              continue
+            fi
+            if [ "$name" = "bundle-windows-latest" ]; then
+              continue
+            fi
+            if [ "$name" = "bundle-ubuntu-latest" ]; then
+              appimage="$(find "$dir" -name "*.AppImage" -print -quit)"
+              deb="$(find "$dir" -name "*.deb" -print -quit)"
+              if [ -n "$appimage" ]; then
+                cp "$appimage" "release/jm-linux.AppImage"
+              fi
+              if [ -n "$deb" ]; then
+                cp "$deb" "release/jm-linux.deb"
+              fi
+              continue
+            fi
+            if [ "$name" = "bundle-macos-latest" ]; then
+              dmg="$(find "$dir" -name "*.dmg" -print -quit)"
+              if [ -n "$dmg" ]; then
+                cp "$dmg" "release/jm-macos.dmg"
+              fi
+              continue
+            fi
+            zip -r "release/${name}.zip" "$dir"
+          done
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.create-tag.outputs.tag }}
+          files: release/*
+
+      - name: Delete current run artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          artifact_ids_output="$(
+            gh api \
+              --paginate \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+              --jq '.artifacts[] | select(.expired == false) | .id'
+          )"
+          artifact_ids=()
+          if [ -n "$artifact_ids_output" ]; then
+            mapfile -t artifact_ids <<< "$artifact_ids_output"
+          fi
+
+          delete_artifact() {
+            local artifact_id="$1"
+            local attempt
+
+            for attempt in 1 2 3; do
+              if gh api \
+                --method DELETE \
+                "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" \
+                >/dev/null; then
+                return 0
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep "$((attempt * 2))"
+              fi
+            done
+
+            return 1
+          }
+
+          for artifact_id in "${artifact_ids[@]}"; do
+            delete_artifact "$artifact_id"
+          done
+
+          echo "Deleted ${#artifact_ids[@]} artifact(s) from workflow run ${GITHUB_RUN_ID}."
