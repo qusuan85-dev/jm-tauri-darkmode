@@ -16,6 +16,8 @@
 | 4 | 真机反馈修复：底部导航「阅读」菜单被裁剪、导出图片/PDF 全部失败、导出图片错位条带 | [`docs/03-ui-export-and-icon.md`](docs/03-ui-export-and-icon.md) |
 | 5 | 收藏时可指定收藏夹、新增「已缓存」页面与封面角标、移除「本地收藏」 | [`docs/05-favorites-and-cache.md`](docs/05-favorites-and-cache.md) |
 
+> 面向使用者的更新说明（每个版本的新增 / 移除 / 修复 / 安装方式与校验值）见 [`CHANGELOG.md`](CHANGELOG.md)。
+
 ### 界面预览
 
 | 浅色 | 深色 |
