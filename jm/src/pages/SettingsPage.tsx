@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
 import type { Session } from "../auth/session";
+import { refreshCachedAlbums } from "../cache/cachedAlbums";
 import {
   DEFAULT_WHEEL_MULTIPLIER,
   DEFAULT_READ_IMG_SCALE,
@@ -455,6 +456,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
       setCacheStats(stats);
       setCacheItems(Array.isArray(items) ? items : []);
       showToast({ ok: true, text: "清理完成" });
+      void refreshCachedAlbums();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setCacheError(msg);
@@ -481,6 +483,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
       setCacheStats(stats);
       setCacheItems(Array.isArray(items) ? items : []);
       showToast({ ok: true, text: `已删除 AID ${aid} 的阅读缓存` });
+      void refreshCachedAlbums();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setCacheError(msg);

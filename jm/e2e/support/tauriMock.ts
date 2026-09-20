@@ -25,8 +25,22 @@ type MockAlbumChapter = {
   images?: string[];
 };
 
+/** One entry of the local reading cache (一键缓存). */
+type MockCachedAlbum = {
+  aid: string;
+  bytes?: number;
+  files?: number;
+  /** Album name stored with the offline metadata; empty mimics "no metadata". */
+  title?: string;
+  author?: string;
+  chapters?: number;
+};
+
 type MockOptions = {
   favorites?: MockFavorite[];
+  favoriteFolders?: Array<{ id: string; name: string }>;
+  albumIsFavorite?: boolean;
+  cachedAlbums?: MockCachedAlbum[];
   searchItems?: MockSearchItem[];
   latestItems?: MockLatestItem[];
   promoteBlocks?: unknown[];
@@ -34,7 +48,6 @@ type MockOptions = {
   albumSeriesId?: string;
   albumSeries?: MockAlbumChapter[];
   chapterImages?: Record<string, string[]>;
-  followAids?: string[];
   readProgress?: Record<string, { updatedAt: number; chapterId?: string; pageIndex?: number }>;
   appVersion?: string;
   updateCheckInfo?: {
@@ -53,7 +66,6 @@ type MockOptions = {
     compareMode?: string | null;
   };
   updateDownloadPath?: string;
-  scanDelayMs?: number;
   latestDelayMs?: number;
   continuousReading?: boolean;
   /** Number of search results the backend returns per request (default: all). */
@@ -65,21 +77,18 @@ type MockOptions = {
 export async function installTauriMock(page: Page, options: MockOptions = {}) {
   await page.addInitScript((payload: MockOptions) => {
     const favorites = Array.isArray(payload.favorites) ? payload.favorites : [];
+    const favoriteFolders = Array.isArray(payload.favoriteFolders) ? payload.favoriteFolders : [];
+    const cachedAlbums = Array.isArray(payload.cachedAlbums) ? payload.cachedAlbums : [];
     const searchItems = Array.isArray(payload.searchItems) ? payload.searchItems : [];
     const latestItems = Array.isArray(payload.latestItems) ? payload.latestItems : [];
     const promoteBlocks = Array.isArray(payload.promoteBlocks) ? payload.promoteBlocks : [];
     const albumSeries = Array.isArray(payload.albumSeries) ? payload.albumSeries : [];
     const chapterImages = payload.chapterImages ?? {};
-    const followAids = Array.isArray(payload.followAids) ? payload.followAids : [];
     const readProgress = payload.readProgress ?? {};
     const appVersion =
       typeof payload.appVersion === "string" && payload.appVersion.trim()
         ? payload.appVersion.trim()
         : "0.1.25+dev";
-    const scanDelayMs =
-      typeof payload.scanDelayMs === "number" && Number.isFinite(payload.scanDelayMs)
-        ? Math.max(0, payload.scanDelayMs)
-        : 30;
     const latestDelayMs =
       typeof payload.latestDelayMs === "number" && Number.isFinite(payload.latestDelayMs)
         ? Math.max(0, payload.latestDelayMs)
@@ -118,7 +127,6 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
     let eventListenerId = 1;
     const callbacks = new Map<number, (payload: unknown) => void>();
     const eventListeners = new Map<number, { event: string; handler: number }>();
-    const cancelledScanIds = new Set<string>();
 
     (window as any).__mockInvokeCalls = [];
     (window as any).isTauri = true;
@@ -127,16 +135,6 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
       unregisterListener: () => {
         // no-op for test mock
       },
-    };
-
-    const filterFavorites = (kind?: string) => {
-      if (kind === "single") {
-        return favorites.filter((it) => !it.latestChapterSort);
-      }
-      if (kind === "multi") {
-        return favorites.filter((it) => Boolean(it.latestChapterSort));
-      }
-      return favorites;
     };
 
     const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -200,6 +198,9 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
         case "api_cover_cache": {
           return "/tmp/mock-cover.jpg";
         }
+        case "api_comments": {
+          return { total: 0, list: [] };
+        }
         case "api_export_default_dir": {
           return payload.exportDefaultDir ?? "C:/mock-export/JM";
         }
@@ -261,89 +262,70 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
               : null,
           };
         }
-        case "api_local_favorites_list": {
-          const kind = typeof args?.kind === "string" ? args.kind : "all";
-          const list = filterFavorites(kind);
+        case "api_favorites": {
           return {
             total: favorites.length,
-            filtered: list.length,
-            list,
+            list: favorites.map((item) => ({
+              id: item.aid,
+              name: item.title,
+              author: item.author,
+            })),
+            folder_list: favoriteFolders.map((folder) => ({ FID: folder.id, name: folder.name })),
           };
         }
-        case "api_local_favorites_scan_latest": {
-          const kind = typeof args?.kind === "string" ? args.kind : "all";
-          const scanId = typeof args?.scanId === "string" ? args.scanId : "scan-e2e";
-          const target = filterFavorites(kind);
-          const total = target.length;
-          let scanned = 0;
-          let updated = 0;
-          let failed = 0;
-
-          for (const item of target) {
-            if (cancelledScanIds.has(scanId)) {
-              emitEvent("local-favorites-scan-progress", {
-                scanId,
-                aid: "",
-                title: "扫描已取消",
-                status: "cancelled",
-                total,
-                scanned,
-                updated,
-                failed,
-              });
-              return {
-                total,
-                scanned,
-                updated,
-                failed,
-                forced: true,
-                cancelled: true,
-              };
-            }
-
-            emitEvent("local-favorites-scan-progress", {
-              scanId,
-              aid: item.aid,
-              title: item.title,
-              status: "scanning",
-              total,
-              scanned,
-              updated,
-              failed,
-              latestChapterSort: null,
-            });
-            await sleep(scanDelayMs);
-
-            scanned += 1;
-            if (item.latestChapterSort) {
-              updated += 1;
-            }
-            emitEvent("local-favorites-scan-progress", {
-              scanId,
-              aid: item.aid,
-              title: item.title,
-              status: item.latestChapterSort ? "updated" : "noUpdate",
-              total,
-              scanned,
-              updated,
-              failed,
-              latestChapterSort: item.latestChapterSort ?? null,
-            });
-          }
-
+        case "api_favorite_toggle":
+        case "api_favorite_folder_add":
+        case "api_favorite_folder_move": {
+          return { code: 200 };
+        }
+        case "api_read_cache_list": {
+          return cachedAlbums.map((item) => ({
+            aid: item.aid,
+            files: item.files ?? 1,
+            bytes: item.bytes ?? 1024,
+            updatedAt: Date.now(),
+            newestMs: Date.now(),
+          }));
+        }
+        case "api_read_cache_remove": {
+          const aid = String(args?.aid ?? "");
+          const index = cachedAlbums.findIndex((item) => item.aid === aid);
+          if (index >= 0) cachedAlbums.splice(index, 1);
           return {
-            total,
-            scanned,
-            updated,
-            failed,
-            forced: true,
-            cancelled: false,
+            totalBytes: 0,
+            totalFiles: 0,
+            totalComics: cachedAlbums.length,
+            updatedAt: Date.now(),
           };
         }
-        case "api_local_favorites_scan_cancel": {
-          const scanId = typeof args?.scanId === "string" ? args.scanId : "";
-          if (scanId) cancelledScanIds.add(scanId);
-          return null;
+        case "api_read_offline_cache_get": {
+          const aid = String(args?.aid ?? "");
+          const entry = cachedAlbums.find((item) => item.aid === aid);
+          if (!entry || !entry.title) return null;
+          const count = Math.max(0, entry.chapters ?? 0);
+          // one stored chapter meta per chapter, so the page can show "已存 N 话"
+          const chapters: Record<string, unknown> = {};
+          for (let i = 0; i < count; i += 1) {
+            chapters[`${aid}${i + 1}`] = { updatedAt: Date.now() };
+          }
+          return {
+            aid,
+            album: {
+              id: aid,
+              name: entry.title,
+              author: entry.author ?? "mock",
+              series:
+                count > 0
+                  ? Array.from({ length: count }, (_, i) => ({
+                      id: `${aid}${i + 1}`,
+                      sort: i + 1,
+                      name: `第${i + 1}话`,
+                    }))
+                  : [],
+            },
+            chapters,
+            updatedAt: Date.now(),
+          };
         }
         case "app_update_check": {
           return updateCheckInfo;
@@ -383,14 +365,6 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
             updatedAt: Date.now(),
           };
         }
-        case "api_follow_state_list": {
-          return followAids.map((aid) => ({
-            aid,
-            lastKnownChapterId: "1",
-            lastKnownChapterSort: "1",
-            updatedAt: Date.now(),
-          }));
-        }
         case "api_album": {
           const aid = String(args?.id ?? "0");
           const albumId = typeof payload.albumId === "string" ? payload.albumId : aid;
@@ -407,6 +381,7 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
             series_id: seriesId,
             name: `AID ${albumId}`,
             author: "mock",
+            is_favorite: Boolean(payload.albumIsFavorite),
             series,
           };
         }
@@ -436,9 +411,8 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
         case "api_image_descramble_file": {
           return "/tmp/mock-reader-image.jpg";
         }
-        case "api_local_favorite_has": {
-          return false;
-        }
+        case "api_read_offline_cache_upsert_album":
+        case "api_read_offline_cache_upsert_chapter":
         case "api_read_progress_upsert":
         case "api_read_progress_clear":
         case "api_read_cancel":
@@ -451,7 +425,6 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
         case "api_api_base_latency":
         case "api_read_progress_export":
         case "api_read_progress_import":
-        case "api_local_favorite_toggle":
         case "plugin:opener|open_url":
         case "plugin:opener|open_path":
         case "plugin:event|unlisten": {

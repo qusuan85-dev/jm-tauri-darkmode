@@ -110,20 +110,6 @@ struct PublicAppConfig {
     socks_proxy: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LocalFavoriteItem {
-    aid: String,
-    #[serde(default)]
-    title: String,
-    #[serde(default)]
-    author: String,
-    #[serde(default)]
-    cover_url: String,
-    added_at: i64,
-    updated_at: i64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct ReadCacheStats {
@@ -173,7 +159,6 @@ struct UpdateDownloadProgressEvent {
 }
 
 const UPDATE_DOWNLOAD_PROGRESS_EVENT: &str = "app-update-download-progress";
-const LOCAL_FAVORITES_SCAN_PROGRESS_EVENT: &str = "local-favorites-scan-progress";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -239,83 +224,11 @@ struct ReadProgressEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct FollowStateEntry {
-    aid: String,
-    last_known_chapter_id: String,
-    last_known_chapter_sort: Option<String>,
-    updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FollowUpdateEntry {
-    aid: String,
-    latest_chapter_id: String,
-    latest_chapter_sort: Option<String>,
-    updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LocalFavoriteView {
-    aid: String,
-    title: String,
-    author: String,
-    cover_url: String,
-    added_at: i64,
-    updated_at: i64,
-    latest_chapter_sort: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LocalFavoritesListResponse {
-    total: u64,
-    filtered: u64,
-    list: Vec<LocalFavoriteView>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct LatestChapterEntry {
     aid: String,
     latest_chapter_id: String,
     latest_chapter_sort: Option<String>,
     updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LatestScanEntry {
-    aid: String,
-    scanned_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LatestScanSummary {
-    total: u64,
-    scanned: u64,
-    updated: u64,
-    failed: u64,
-    forced: bool,
-    cancelled: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LatestScanProgressEvent {
-    scan_id: String,
-    aid: String,
-    title: String,
-    status: String,
-    total: u64,
-    scanned: u64,
-    updated: u64,
-    failed: u64,
-    latest_chapter_sort: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -332,53 +245,6 @@ struct ComicExtraEntry {
 #[serde(rename_all = "camelCase")]
 struct ExportResult {
     path: String,
-}
-
-struct LocalFavoritesStore {
-    tree: Option<sled::Tree>,
-    init_error: Option<String>,
-}
-
-impl LocalFavoritesStore {
-    fn open() -> Self {
-        let base_dir = match resolve_data_dir() {
-            Ok(p) => p,
-            Err(e) => {
-                logl!("[tauri][localfav] resolve data dir failed: {e}");
-                return Self {
-                    tree: None,
-                    init_error: Some(e),
-                };
-            }
-        };
-
-        let db_dir = base_dir.join("local-favorites.sled");
-        match sled::open(&db_dir).and_then(|db| db.open_tree("local_favorites").map(|t| (db, t))) {
-            Ok((_db, tree)) => {
-                logl!("[tauri][localfav] sled opened at {:?}", db_dir);
-                Self {
-                    tree: Some(tree),
-                    init_error: None,
-                }
-            }
-            Err(e) => {
-                let msg = format!("open sled failed at {:?}: {e}", db_dir);
-                logl!("[tauri][localfav] {msg}");
-                Self {
-                    tree: None,
-                    init_error: Some(msg),
-                }
-            }
-        }
-    }
-
-    fn tree(&self) -> Result<&sled::Tree, String> {
-        self.tree.as_ref().ok_or_else(|| {
-            self.init_error
-                .clone()
-                .unwrap_or_else(|| "local favorites store unavailable".into())
-        })
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -763,12 +629,14 @@ fn read_progress_tree() -> Result<sled::Tree, String> {
         .map_err(|e| format!("open read progress tree failed: {e}"))
 }
 
+#[allow(dead_code)]
 fn read_follow_tree() -> Result<sled::Tree, String> {
     read_progress_db()?
         .open_tree("read_follow_state")
         .map_err(|e| format!("open read follow tree failed: {e}"))
 }
 
+#[allow(dead_code)]
 fn read_update_tree() -> Result<sled::Tree, String> {
     read_progress_db()?
         .open_tree("read_updates")
@@ -781,6 +649,7 @@ fn read_latest_tree() -> Result<sled::Tree, String> {
         .map_err(|e| format!("open read latest tree failed: {e}"))
 }
 
+#[allow(dead_code)]
 fn read_latest_seen_tree() -> Result<sled::Tree, String> {
     read_progress_db()?
         .open_tree("read_latest_seen")
@@ -907,6 +776,7 @@ fn current_socks_proxy() -> Option<String> {
         .and_then(|c| c.socks_proxy.clone())
 }
 
+#[allow(dead_code)]
 fn stored_session_cookies() -> HashMap<String, String> {
     config_state()
         .lock()
@@ -1655,19 +1525,6 @@ async fn api_read_progress_import(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn api_follow_state_list() -> Result<Vec<FollowStateEntry>, String> {
-    let tree = read_follow_tree()?;
-    let mut out = Vec::new();
-    for item in tree.iter() {
-        let (_, val) = item.map_err(|e| format!("sled iter failed: {e}"))?;
-        if let Ok(entry) = serde_json::from_slice::<FollowStateEntry>(&val) {
-            out.push(entry);
-        }
-    }
-    Ok(out)
-}
-
-#[tauri::command]
 async fn api_proxy_check(proxy: Option<String>) -> Result<String, String> {
     let proxy = proxy
         .and_then(|s| {
@@ -2199,375 +2056,6 @@ fn parse_series_latest(series: &[serde_json::Value]) -> Option<(String, Option<S
     });
     let last = items.pop()?;
     Some((last.2, last.3))
-}
-
-fn local_favorites_scan_cancel_key(scan_id: &str) -> String {
-    format!("localfav_scan:{scan_id}")
-}
-
-fn emit_latest_scan_progress(app: &tauri::AppHandle, ev: LatestScanProgressEvent) {
-    let _ = app.emit(LOCAL_FAVORITES_SCAN_PROGRESS_EVENT, ev);
-}
-
-async fn scan_latest_chapters_with_mode(
-    app: tauri::AppHandle,
-    force: bool,
-    kind: Option<String>,
-    scan_id: Option<String>,
-    cancel_token: Option<Arc<AtomicBool>>,
-) -> Result<LatestScanSummary, String> {
-    let store = app.state::<LocalFavoritesStore>();
-    let tree = store.tree()?.clone();
-    let latest_tree = read_latest_tree()?;
-    let seen_tree = read_latest_seen_tree()?;
-
-    let kind = kind.unwrap_or_else(|| "all".to_string());
-    let kind = kind.trim().to_ascii_lowercase();
-    let filter_multi = if kind.eq_ignore_ascii_case("single") {
-        Some(false)
-    } else if kind.eq_ignore_ascii_case("multi") {
-        Some(true)
-    } else {
-        None
-    };
-
-    let mut targets: Vec<(LocalFavoriteItem, Option<LatestChapterEntry>)> = Vec::new();
-    for item in tree.iter() {
-        let (_, val) = item.map_err(|e| format!("sled iter failed: {e}"))?;
-        let fav: LocalFavoriteItem =
-            bincode::deserialize(&val).map_err(|e| format!("decode favorite failed: {e}"))?;
-        let latest = latest_tree
-            .get(fav.aid.as_bytes())
-            .map_err(|e| format!("read latest failed: {e}"))?
-            .and_then(|bytes| serde_json::from_slice::<LatestChapterEntry>(&bytes).ok());
-        if let Some(need_multi) = filter_multi {
-            let is_multi = latest
-                .as_ref()
-                .and_then(|entry| entry.latest_chapter_sort.as_ref())
-                .is_some();
-            if need_multi != is_multi {
-                continue;
-            }
-        }
-        targets.push((fav, latest));
-    }
-
-    let mut summary = LatestScanSummary {
-        total: targets.len() as u64,
-        scanned: 0,
-        updated: 0,
-        failed: 0,
-        forced: force,
-        cancelled: false,
-    };
-
-    for (fav, prev_latest) in targets {
-        if cancel_token
-            .as_ref()
-            .is_some_and(|token| token.load(Ordering::Relaxed))
-        {
-            summary.cancelled = true;
-            break;
-        }
-        let aid = fav.aid.clone();
-        let title = if fav.title.trim().is_empty() {
-            format!("AID {}", aid)
-        } else {
-            fav.title.clone()
-        };
-        let prev_pair = prev_latest.as_ref().map(|entry| {
-            (
-                entry.latest_chapter_id.clone(),
-                entry.latest_chapter_sort.clone(),
-            )
-        });
-
-        if let Some(scan_id) = &scan_id {
-            emit_latest_scan_progress(
-                &app,
-                LatestScanProgressEvent {
-                    scan_id: scan_id.clone(),
-                    aid: aid.clone(),
-                    title: title.clone(),
-                    status: "scanning".to_string(),
-                    total: summary.total,
-                    scanned: summary.scanned,
-                    updated: summary.updated,
-                    failed: summary.failed,
-                    latest_chapter_sort: None,
-                    message: None,
-                },
-            );
-        }
-
-        let album = match api_album(aid.clone(), stored_session_cookies()).await {
-            Ok(v) => v,
-            Err(e) => {
-                logl!("[tauri][latest] album fetch failed aid={} err={}", aid, e);
-                summary.failed += 1;
-                summary.scanned += 1;
-                if let Some(scan_id) = &scan_id {
-                    emit_latest_scan_progress(
-                        &app,
-                        LatestScanProgressEvent {
-                            scan_id: scan_id.clone(),
-                            aid: aid.clone(),
-                            title,
-                            status: "failed".to_string(),
-                            total: summary.total,
-                            scanned: summary.scanned,
-                            updated: summary.updated,
-                            failed: summary.failed,
-                            latest_chapter_sort: None,
-                            message: Some(e),
-                        },
-                    );
-                }
-                continue;
-            }
-        };
-        let series = album
-            .get("series")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-
-        let mut latest_for_emit: Option<String> = None;
-        let mut status = "noUpdate".to_string();
-
-        if let Some((latest_id, latest_sort)) = parse_series_latest(&series) {
-            let next_pair = Some((latest_id.clone(), latest_sort.clone()));
-            latest_for_emit = latest_sort.clone();
-            let latest_entry = LatestChapterEntry {
-                aid: aid.clone(),
-                latest_chapter_id: latest_id,
-                latest_chapter_sort: latest_sort,
-                updated_at: now,
-            };
-            latest_tree
-                .insert(
-                    aid.as_bytes(),
-                    serde_json::to_vec(&latest_entry)
-                        .map_err(|e| format!("encode latest failed: {e}"))?,
-                )
-                .map_err(|e| format!("write latest failed: {e}"))?;
-            let _ = latest_tree.flush();
-
-            if prev_pair != next_pair {
-                summary.updated += 1;
-                status = "updated".to_string();
-            }
-        } else {
-            if prev_pair.is_some() {
-                summary.updated += 1;
-                status = "updated".to_string();
-            }
-            let _ = latest_tree.remove(aid.as_bytes());
-            let _ = latest_tree.flush();
-        }
-
-        summary.scanned += 1;
-
-        let seen_entry = LatestScanEntry {
-            aid: aid.clone(),
-            scanned_at: now,
-        };
-        seen_tree
-            .insert(
-                aid.as_bytes(),
-                serde_json::to_vec(&seen_entry).map_err(|e| format!("encode seen failed: {e}"))?,
-            )
-            .map_err(|e| format!("write seen failed: {e}"))?;
-        let _ = seen_tree.flush();
-
-        if let Some(scan_id) = &scan_id {
-            emit_latest_scan_progress(
-                &app,
-                LatestScanProgressEvent {
-                    scan_id: scan_id.clone(),
-                    aid,
-                    title,
-                    status,
-                    total: summary.total,
-                    scanned: summary.scanned,
-                    updated: summary.updated,
-                    failed: summary.failed,
-                    latest_chapter_sort: latest_for_emit,
-                    message: None,
-                },
-            );
-        }
-    }
-
-    if summary.cancelled {
-        if let Some(scan_id) = &scan_id {
-            emit_latest_scan_progress(
-                &app,
-                LatestScanProgressEvent {
-                    scan_id: scan_id.clone(),
-                    aid: "".to_string(),
-                    title: "扫描已取消".to_string(),
-                    status: "cancelled".to_string(),
-                    total: summary.total,
-                    scanned: summary.scanned,
-                    updated: summary.updated,
-                    failed: summary.failed,
-                    latest_chapter_sort: None,
-                    message: None,
-                },
-            );
-        }
-    }
-
-    Ok(summary)
-}
-
-async fn scan_latest_chapters(app: tauri::AppHandle) -> Result<(), String> {
-    let _ = scan_latest_chapters_with_mode(app, false, None, None, None).await?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn api_local_favorites_scan_latest(
-    app: tauri::AppHandle,
-    kind: Option<String>,
-    scan_id: Option<String>,
-    registry: tauri::State<'_, CancelRegistry>,
-) -> Result<LatestScanSummary, String> {
-    let scan_id = scan_id.and_then(|s| {
-        let t = s.trim().to_string();
-        if t.is_empty() {
-            None
-        } else {
-            Some(t)
-        }
-    });
-    let cancel_token = scan_id.as_ref().map(|id| {
-        let key = local_favorites_scan_cancel_key(id);
-        let token = registry.token_for(&key);
-        token.store(false, Ordering::Relaxed);
-        token
-    });
-
-    let summary =
-        scan_latest_chapters_with_mode(app.clone(), true, kind, scan_id, cancel_token).await?;
-    if !summary.cancelled {
-        if let Err(e) = scan_follow_updates(app).await {
-            logl!("[tauri][follow] scan after manual latest refresh failed: {e}");
-        }
-    }
-    Ok(summary)
-}
-
-#[tauri::command]
-fn api_local_favorites_scan_cancel(
-    scan_id: String,
-    registry: tauri::State<'_, CancelRegistry>,
-) -> Result<(), String> {
-    let scan_id = scan_id.trim();
-    if scan_id.is_empty() {
-        return Err("scan id is required".to_string());
-    }
-    let key = local_favorites_scan_cancel_key(scan_id);
-    registry.cancel(&key);
-    Ok(())
-}
-
-async fn scan_follow_updates(app: tauri::AppHandle) -> Result<(), String> {
-    let store = app.state::<LocalFavoritesStore>();
-    let tree = store.tree()?.clone();
-    let progress_tree = read_progress_tree()?;
-    let follow_tree = read_follow_tree()?;
-    let updates_tree = read_update_tree()?;
-    let latest_tree = read_latest_tree()?;
-
-    for item in tree.iter() {
-        let (_, val) = item.map_err(|e| format!("sled iter failed: {e}"))?;
-        let fav: LocalFavoriteItem =
-            bincode::deserialize(&val).map_err(|e| format!("decode favorite failed: {e}"))?;
-        let aid = fav.aid.clone();
-        let Some(progress_bytes) = progress_tree
-            .get(aid.as_bytes())
-            .map_err(|e| format!("read progress failed: {e}"))?
-        else {
-            continue;
-        };
-        let progress: ReadProgressEntry = serde_json::from_slice(&progress_bytes)
-            .map_err(|e| format!("decode read progress failed: {e}"))?;
-        let Some(progress_chapter_id) = progress.chapter_id.clone() else {
-            continue;
-        };
-
-        let latest_entry = latest_tree
-            .get(aid.as_bytes())
-            .map_err(|e| format!("read latest failed: {e}"))?
-            .and_then(|bytes| serde_json::from_slice::<LatestChapterEntry>(&bytes).ok());
-        let Some(latest_entry) = latest_entry else {
-            continue;
-        };
-        let latest_id = latest_entry.latest_chapter_id.clone();
-        let latest_sort = latest_entry.latest_chapter_sort.clone();
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-
-        let prev_state = follow_tree
-            .get(aid.as_bytes())
-            .map_err(|e| format!("read follow state failed: {e}"))?
-            .and_then(|bytes| serde_json::from_slice::<FollowStateEntry>(&bytes).ok());
-
-        if let Some(state) = prev_state {
-            if state.last_known_chapter_id != latest_id {
-                let update = FollowUpdateEntry {
-                    aid: aid.clone(),
-                    latest_chapter_id: latest_id.clone(),
-                    latest_chapter_sort: latest_sort.clone(),
-                    updated_at: now,
-                };
-                updates_tree
-                    .insert(
-                        aid.as_bytes(),
-                        serde_json::to_vec(&update)
-                            .map_err(|e| format!("encode update failed: {e}"))?,
-                    )
-                    .map_err(|e| format!("write update failed: {e}"))?;
-                let _ = updates_tree.flush();
-                logl!(
-                    "[tauri][follow] update found aid={} latest={}",
-                    aid,
-                    latest_id
-                );
-            }
-        }
-
-        if progress_chapter_id == latest_id {
-            let state = FollowStateEntry {
-                aid: aid.clone(),
-                last_known_chapter_id: latest_id.clone(),
-                last_known_chapter_sort: latest_sort.clone(),
-                updated_at: now,
-            };
-            follow_tree
-                .insert(
-                    aid.as_bytes(),
-                    serde_json::to_vec(&state).map_err(|e| format!("encode follow failed: {e}"))?,
-                )
-                .map_err(|e| format!("write follow failed: {e}"))?;
-            let _ = follow_tree.flush();
-        } else {
-            let _ = follow_tree.remove(aid.as_bytes());
-            let _ = follow_tree.flush();
-        }
-    }
-
-    Ok(())
 }
 
 async fn fetch_api_domain_list() -> Result<Vec<String>, String> {
@@ -4428,149 +3916,6 @@ fn jmcache_protocol<R: tauri::Runtime>(
 }
 
 #[tauri::command]
-async fn api_local_favorites_list(
-    kind: Option<String>,
-    store: tauri::State<'_, LocalFavoritesStore>,
-) -> Result<LocalFavoritesListResponse, String> {
-    let tree = store.tree()?;
-    let latest_tree = read_latest_tree()?;
-
-    let kind = kind.unwrap_or_else(|| "all".to_string());
-    let kind = kind.trim();
-    let filter_multi = if kind.eq_ignore_ascii_case("single") {
-        Some(false)
-    } else if kind.eq_ignore_ascii_case("multi") {
-        Some(true)
-    } else {
-        None
-    };
-
-    let mut latest_map = HashMap::new();
-    for res in latest_tree.iter() {
-        let (k, v) = res.map_err(|e| format!("sled iter failed: {e}"))?;
-        if let Ok(entry) = serde_json::from_slice::<LatestChapterEntry>(&v) {
-            latest_map.insert(k.to_vec(), entry);
-        }
-    }
-
-    let mut items = Vec::new();
-    let mut total: u64 = 0;
-    let mut filtered: u64 = 0;
-    for res in tree.iter() {
-        let (_, v) = res.map_err(|e| format!("sled iter failed: {e}"))?;
-        let it: LocalFavoriteItem =
-            bincode::deserialize(&v).map_err(|e| format!("decode local favorite failed: {e}"))?;
-        total += 1;
-        let latest = latest_map
-            .get(it.aid.as_bytes())
-            .and_then(|entry| entry.latest_chapter_sort.clone());
-        if let Some(need_multi) = filter_multi {
-            let is_multi = latest.is_some();
-            if need_multi != is_multi {
-                continue;
-            }
-        }
-        filtered += 1;
-        items.push(LocalFavoriteView {
-            aid: it.aid,
-            title: it.title,
-            author: it.author,
-            cover_url: it.cover_url,
-            added_at: it.added_at,
-            updated_at: it.updated_at,
-            latest_chapter_sort: latest,
-        });
-    }
-    items.sort_by_key(|x| -x.updated_at);
-    Ok(LocalFavoritesListResponse {
-        total,
-        filtered,
-        list: items,
-    })
-}
-
-#[tauri::command]
-async fn api_local_favorite_has(
-    aid: String,
-    store: tauri::State<'_, LocalFavoritesStore>,
-) -> Result<bool, String> {
-    let tree = store.tree()?;
-    Ok(tree
-        .get(aid.as_bytes())
-        .map_err(|e| format!("sled get failed: {e}"))?
-        .is_some())
-}
-
-#[tauri::command]
-async fn api_local_favorite_toggle(
-    aid: String,
-    title: Option<String>,
-    author: Option<String>,
-    cover_url: Option<String>,
-    store: tauri::State<'_, LocalFavoritesStore>,
-    app: tauri::AppHandle,
-) -> Result<bool, String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| format!("system time error: {e}"))?
-        .as_secs() as i64;
-
-    let tree = store.tree()?;
-
-    if tree
-        .get(aid.as_bytes())
-        .map_err(|e| format!("sled get failed: {e}"))?
-        .is_some()
-    {
-        tree.remove(aid.as_bytes())
-            .map_err(|e| format!("sled remove failed: {e}"))?;
-        let _ = tree.flush();
-        logl!("[tauri][localfav] removed aid={}", aid);
-        let _ = read_latest_tree().and_then(|t| {
-            let _ = t.remove(aid.as_bytes());
-            let _ = t.flush();
-            Ok(())
-        });
-        let _ = read_latest_seen_tree().and_then(|t| {
-            let _ = t.remove(aid.as_bytes());
-            let _ = t.flush();
-            Ok(())
-        });
-        let _ = read_follow_tree().and_then(|t| {
-            let _ = t.remove(aid.as_bytes());
-            let _ = t.flush();
-            Ok(())
-        });
-        return Ok(false);
-    }
-
-    let title_log = title.clone();
-    let item = LocalFavoriteItem {
-        aid: aid.clone(),
-        title: title.unwrap_or_default(),
-        author: author.unwrap_or_default(),
-        cover_url: cover_url.unwrap_or_default(),
-        added_at: now,
-        updated_at: now,
-    };
-    let val =
-        bincode::serialize(&item).map_err(|e| format!("encode local favorite failed: {e}"))?;
-    tree.insert(aid.as_bytes(), val)
-        .map_err(|e| format!("sled insert failed: {e}"))?;
-    let _ = tree.flush();
-    logl!("[tauri][localfav] added aid={} title={:?}", aid, title_log);
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        tauri::async_runtime::block_on(async {
-            if let Err(e) = scan_latest_chapters(handle).await {
-                logl!("[tauri][latest] scan failed: {e}");
-            }
-        });
-    });
-    Ok(true)
-}
-
-#[tauri::command]
 async fn api_read_cancel(
     read_key: String,
     registry: tauri::State<'_, CancelRegistry>,
@@ -5470,25 +4815,11 @@ pub fn run() {
                     std::env::set_var("JM_DATA_DIR", base.join("data").to_string_lossy().as_ref());
                 }
             }
-            app.manage(LocalFavoritesStore::open());
             let handle = app.handle().clone();
             std::thread::spawn(move || loop {
                 if let Err(e) = update_read_cache_stats(handle.clone()) {
                     logl!("[tauri][cache] scan failed: {e}");
                 }
-                std::thread::sleep(Duration::from_secs(600));
-            });
-            let follow_handle = app.handle().clone();
-            std::thread::spawn(move || loop {
-                let h = follow_handle.clone();
-                tauri::async_runtime::block_on(async {
-                    if let Err(e) = scan_latest_chapters(h.clone()).await {
-                        logl!("[tauri][latest] scan failed: {e}");
-                    }
-                    if let Err(e) = scan_follow_updates(h).await {
-                        logl!("[tauri][follow] scan failed: {e}");
-                    }
-                });
                 std::thread::sleep(Duration::from_secs(600));
             });
             tauri::async_runtime::spawn(async {
@@ -5521,7 +4852,6 @@ pub fn run() {
             api_read_progress_list,
             api_read_progress_export,
             api_read_progress_import,
-            api_follow_state_list,
             api_proxy_check,
             login,
             api_latest,
@@ -5553,11 +4883,6 @@ pub fn run() {
             api_category_search,
             api_cover_cache,
             api_search,
-            api_local_favorites_list,
-            api_local_favorites_scan_latest,
-            api_local_favorites_scan_cancel,
-            api_local_favorite_has,
-            api_local_favorite_toggle,
             api_album,
             api_chapter,
             api_comic_page_count,

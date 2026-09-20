@@ -777,7 +777,7 @@ export default function SearchPage(props: {
                       onClick={() => aid && props.onOpenComic(aid)}
                       disabled={!aid}
                     >
-                      <CoverImage src={cover} alt={title} className="h-full w-full object-cover" />
+                      <CoverImage src={cover} alt={title} aid={aid} className="h-full w-full object-cover" />
                     </button>
                     <div className="flex flex-1 flex-col gap-1 p-2">
                       <button
@@ -828,8 +828,8 @@ export default function SearchPage(props: {
                   className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
-                      <CoverImage src={cover} alt={title} className="h-full w-full object-cover" />
+                    <div className="relative h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
+                      <CoverImage src={cover} alt={title} aid={aid} className="h-full w-full object-cover" />
                     </div>
                     <div className="min-w-0">
                       <button

@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   BookOpen,
   Clock,
-  FolderHeart,
+  HardDriveDownload,
   Heart,
   Home,
   Search,
@@ -71,12 +71,12 @@ export default function SideNav(props: {
                         在线收藏
                       </NavLink>
                       <NavLink
-                        to="/home/local_favorites"
+                        to="/home/cached"
                         className="flex items-center gap-2 rounded-md px-2 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
                         onClick={() => setReadMenuOpen(false)}
                       >
-                        <FolderHeart className="h-4 w-4" />
-                        本地收藏
+                        <HardDriveDownload className="h-4 w-4" />
+                        已缓存
                       </NavLink>
                       <NavLink
                         to="/home/history"
@@ -143,10 +143,10 @@ export default function SideNav(props: {
               收藏(在线)
             </span>
           </NavLink>
-          <NavLink to="/home/local_favorites" className={navLinkClass}>
+          <NavLink to="/home/cached" className={navLinkClass}>
             <span className="flex items-center gap-2 leading-none">
-              <FolderHeart className={iconClass} />
-              收藏(本地)
+              <HardDriveDownload className={iconClass} />
+              已缓存
             </span>
           </NavLink>
           <NavLink to="/home/category_rank" className={navLinkClass}>

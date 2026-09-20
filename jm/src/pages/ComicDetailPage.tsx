@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import useSWR from "swr";
-import { ArrowLeft, BookOpen, Bookmark, Download, FolderDown, Loader2, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Download, FolderDown, Loader2, X } from "lucide-react";
 
 import type { Session } from "../auth/session";
 import { isAuthExpiredError } from "../auth/errors";
+import { refreshCachedAlbums } from "../cache/cachedAlbums";
 import Button from "../components/Button";
 import { useToast } from "../components/Toast";
 import { getImgBase } from "../config/endpoints";
@@ -269,8 +270,13 @@ export default function ComicDetailPage(props: {
   onOpenReader: (target: ReadingTarget, startPage?: number) => void;
 }) {
   const [toggleBusy, setToggleBusy] = useState(false);
-  const [localFavBusy, setLocalFavBusy] = useState(false);
-  const [isLocalFav, setIsLocalFav] = useState(false);
+  const [favSheetOpen, setFavSheetOpen] = useState(false);
+  const [favFolders, setFavFolders] = useState<Array<{ id: string; name: string }>>([]);
+  const [favFoldersLoading, setFavFoldersLoading] = useState(false);
+  const [favFoldersError, setFavFoldersError] = useState("");
+  const [favBusyFolderId, setFavBusyFolderId] = useState("");
+  const [newFavFolderName, setNewFavFolderName] = useState("");
+  const [favCreating, setFavCreating] = useState(false);
   const [usingOfflineAlbum, setUsingOfflineAlbum] = useState(false);
   const [progress, setProgress] = useState<ReadProgress | null>(() => getReadProgress(props.aid));
   const [comicPageCount, setComicPageCount] = useState<number | null>(null);
@@ -392,22 +398,40 @@ export default function ComicDetailPage(props: {
     setCommentPageSize(0);
   }, [rootAid]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const ok = await invoke<boolean>("api_local_favorite_has", { aid: rootAid });
-        if (!cancelled) setIsLocalFav(Boolean(ok));
-      } catch {
-        if (!cancelled) setIsLocalFav(false);
+  const loadFavoriteFolders = useCallback(async () => {
+    setFavFoldersLoading(true);
+    setFavFoldersError("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const data = await invoke<any>("api_favorites", {
+        page: "1",
+        sort: "mr",
+        folderId: "0",
+        cookies: props.session.cookies,
+      });
+      const list = Array.isArray(data?.folder_list) ? data.folder_list : [];
+      const folders = list
+        .map((f: any) => ({
+          id: f?.FID != null ? String(f.FID) : "",
+          name: typeof f?.name === "string" ? f.name : "",
+        }))
+        .filter((f: { id: string; name: string }) => f.id && f.name);
+      setFavFolders(folders);
+    } catch (e) {
+      if (isAuthExpiredError(e)) {
+        props.onAuthExpired();
+        return;
       }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [rootAid]);
+      setFavFoldersError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFavFoldersLoading(false);
+    }
+  }, [props.onAuthExpired, props.session.cookies]);
+
+  useEffect(() => {
+    if (!favSheetOpen) return;
+    void loadFavoriteFolders();
+  }, [favSheetOpen, loadFavoriteFolders]);
 
   const title = album?.name ?? `漫画 ${props.aid}`;
   const authorText = useMemo(() => toText(album?.author), [album?.author]);
@@ -565,52 +589,95 @@ export default function ComicDetailPage(props: {
     }
   }, [readingWork.aliases, showToast]);
 
+  /**
+   * Saves the album into the chosen favourites folder.
+   *
+   * The mobile API has no "favourite with folder" call, so a fresh favourite is
+   * added first and then moved; an existing favourite is only moved.
+   */
+  const saveToFavoriteFolder = useCallback(
+    async (folderId: string, folderName: string) => {
+      if (!album) return;
+      const wasFavorite = Boolean(album.is_favorite);
+      if (folderId === "0" && wasFavorite) {
+        setFavSheetOpen(false);
+        return;
+      }
+      setFavBusyFolderId(folderId);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        if (!wasFavorite) {
+          await invoke("api_favorite_toggle", { aid: rootAid, cookies: props.session.cookies });
+        }
+        if (folderId !== "0") {
+          await invoke("api_favorite_folder_move", {
+            aid: rootAid,
+            folderId,
+            cookies: props.session.cookies,
+          });
+        }
+        await mutate();
+        setFavSheetOpen(false);
+        showToast({
+          ok: true,
+          text: wasFavorite ? `已移动到「${folderName}」` : `已收藏到「${folderName}」`,
+        });
+      } catch (e) {
+        if (isAuthExpiredError(e)) {
+          props.onAuthExpired();
+          return;
+        }
+        const msg = e instanceof Error ? e.message : String(e);
+        showToast({ ok: false, text: `收藏失败：${msg}` });
+      } finally {
+        setFavBusyFolderId("");
+      }
+    },
+    [album, mutate, props.onAuthExpired, props.session.cookies, rootAid, showToast],
+  );
+
   const toggleFavorite = useCallback(async () => {
     if (!album) return;
-    const wasFavorite = Boolean(album.is_favorite);
     setToggleBusy(true);
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("api_favorite_toggle", { aid: rootAid, cookies: props.session.cookies });
       await mutate();
-      showToast({
-        ok: true,
-        text: wasFavorite ? "已取消收藏" : "已添加到收藏",
-      });
+      setFavSheetOpen(false);
+      showToast({ ok: true, text: "已取消收藏" });
     } catch (e) {
       if (isAuthExpiredError(e)) {
         props.onAuthExpired();
         return;
       }
       const msg = e instanceof Error ? e.message : String(e);
-      showToast({ ok: false, text: `收藏操作失败：${msg}` });
+      showToast({ ok: false, text: `取消收藏失败：${msg}` });
     } finally {
       setToggleBusy(false);
     }
   }, [album, mutate, props.onAuthExpired, props.session.cookies, rootAid, showToast]);
 
-  const toggleLocalFavorite = useCallback(async () => {
-    setLocalFavBusy(true);
+  const createFavoriteFolder = useCallback(async () => {
+    const name = newFavFolderName.trim();
+    if (!name) return;
+    setFavCreating(true);
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const nowFav = await invoke<boolean>("api_local_favorite_toggle", {
-        aid: rootAid,
-        title: album?.name ?? "",
-        author: authorText,
-        coverUrl,
-      });
-      setIsLocalFav(Boolean(nowFav));
-      showToast({
-        ok: true,
-        text: nowFav ? "已添加到本地收藏" : "已取消本地收藏",
-      });
+      await invoke("api_favorite_folder_add", { name, cookies: props.session.cookies });
+      setNewFavFolderName("");
+      await loadFavoriteFolders();
+      showToast({ ok: true, text: `已新建收藏夹「${name}」` });
     } catch (e) {
+      if (isAuthExpiredError(e)) {
+        props.onAuthExpired();
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
-      showToast({ ok: false, text: `本地收藏失败：${msg}` });
+      setFavFoldersError(msg);
     } finally {
-      setLocalFavBusy(false);
+      setFavCreating(false);
     }
-  }, [album?.name, authorText, coverUrl, rootAid, showToast]);
+  }, [loadFavoriteFolders, newFavFolderName, props.onAuthExpired, props.session.cookies, showToast]);
 
   const cacheAll = useCallback(async () => {
     if (!album || chapters.length === 0) return;
@@ -680,6 +747,7 @@ export default function ComicDetailPage(props: {
         }
       }
       await invoke("api_read_cache_refresh");
+      void refreshCachedAlbums();
       showToast({ ok: failed === 0, text: failed === 0 ? "缓存下载完成" : `缓存完成，失败 ${failed} 张` });
     } catch (e) {
       if (isAuthExpiredError(e)) {
@@ -952,16 +1020,6 @@ export default function ComicDetailPage(props: {
               <ArrowLeft className="h-4 w-4" />
               返回
             </button>
-            <button
-              type="button"
-              className="inline-flex h-9 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-              disabled={localFavBusy}
-              onClick={toggleLocalFavorite}
-              title="仅保存到本机，不影响在线收藏"
-            >
-              <Bookmark className="h-4 w-4" />
-              {isLocalFav ? "取消本地" : "本地收藏"}
-            </button>
             <Button
               className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
               disabled={cacheDownloading || !album}
@@ -990,11 +1048,10 @@ export default function ComicDetailPage(props: {
             </Button>
             <Button
               className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-              disabled={toggleBusy || !album}
-              loading={toggleBusy}
-              onClick={toggleFavorite}
+              disabled={!album}
+              onClick={() => setFavSheetOpen((v) => !v)}
             >
-              {album?.is_favorite ? "取消收藏" : "收藏"}
+              {album?.is_favorite ? "已收藏 · 移动" : "收藏"}
             </Button>
           </div>
         </div>
@@ -1002,6 +1059,98 @@ export default function ComicDetailPage(props: {
         {errorText ? (
           <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-red-600 shadow-sm">
             {errorText}
+          </div>
+        ) : null}
+
+        {favSheetOpen ? (
+          <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-sm font-medium text-zinc-900">
+                {album?.is_favorite ? "移动到收藏夹" : "收藏到收藏夹"}
+              </div>
+              <button
+                type="button"
+                className="rounded-full p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
+                aria-label="关闭收藏夹面板"
+                onClick={() => setFavSheetOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {favFoldersError ? (
+              <div className="mb-2 rounded-md border border-zinc-200 bg-white p-2 text-sm text-red-600">
+                {favFoldersError}
+              </div>
+            ) : null}
+
+            {favFoldersLoading ? (
+              <div className="text-sm text-zinc-500">正在读取收藏夹…</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {!album?.is_favorite ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={!!favBusyFolderId}
+                    onClick={() => void saveToFavoriteFolder("0", "默认收藏夹")}
+                  >
+                    {favBusyFolderId === "0" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    默认收藏夹
+                  </button>
+                ) : null}
+                {favFolders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={!!favBusyFolderId}
+                    onClick={() => void saveToFavoriteFolder(folder.id, folder.name)}
+                  >
+                    {favBusyFolderId === folder.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {folder.name}
+                  </button>
+                ))}
+                {favFolders.length === 0 ? (
+                  <div className="text-sm text-zinc-500">
+                    {album?.is_favorite
+                      ? "还没有其它收藏夹，先在下面新建一个。"
+                      : "还没有自定义收藏夹，先收藏到默认收藏夹也可以。"}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                className="h-8 min-w-[160px] flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm"
+                placeholder="新建收藏夹名称"
+                value={newFavFolderName}
+                onChange={(e) => setNewFavFolderName(e.currentTarget.value)}
+              />
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                disabled={!newFavFolderName.trim() || favCreating}
+                onClick={() => void createFavoriteFolder()}
+              >
+                {favCreating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                新建
+              </button>
+              {album?.is_favorite ? (
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-red-600 hover:bg-zinc-50 disabled:opacity-60"
+                  disabled={toggleBusy || !!favBusyFolderId}
+                  onClick={() => void toggleFavorite()}
+                >
+                  {toggleBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  取消收藏
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -1162,11 +1311,14 @@ export default function ComicDetailPage(props: {
             <div className="flex flex-col gap-3">
               <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                 <div className="mb-3 text-sm font-medium text-zinc-900">封面</div>
-                <CoverImage
-                  src={coverUrl}
-                  alt={title}
-                  className="w-full rounded-md border border-zinc-200 bg-zinc-50 object-cover"
-                />
+                <div className="relative">
+                  <CoverImage
+                    src={coverUrl}
+                    alt={title}
+                    aid={rootAid}
+                    className="w-full rounded-md border border-zinc-200 bg-zinc-50 object-cover"
+                  />
+                </div>
               </div>
 
               <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">

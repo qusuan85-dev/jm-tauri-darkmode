@@ -18,7 +18,7 @@ import SideNav from "./components/SideNav";
 import { ToastProvider, useToast } from "./components/Toast";
 import HomePage from "./pages/HomePage";
 import FavoritesPage from "./pages/FavoritesPage";
-import LocalFavoritesPage from "./pages/LocalFavoritesPage";
+import CachedPage from "./pages/CachedPage";
 import CategoryRankPage from "./pages/CategoryRankPage";
 import HistoryPage from "./pages/HistoryPage";
 import SearchPage from "./pages/SearchPage";
@@ -32,7 +32,7 @@ import type { ChapterNavItem, ReadingTarget, ReadingWork } from "./reading/navig
 type HomeSub =
   | "home"
   | "favorites"
-  | "local_favorites"
+  | "cached"
   | "category_rank"
   | "history"
   | "search"
@@ -82,7 +82,7 @@ function extractDailyId(data: any): string {
 function normalizeHomeSub(value?: string): HomeSub {
   switch (value) {
     case "favorites":
-    case "local_favorites":
+    case "cached":
     case "category_rank":
     case "history":
     case "search":
@@ -102,8 +102,8 @@ function homeTitle(sub: HomeSub) {
   switch (sub) {
     case "favorites":
       return "收藏(在线)";
-    case "local_favorites":
-      return "收藏(本地)";
+    case "cached":
+      return "已缓存";
     case "category_rank":
       return "分类与排行";
     case "history":
@@ -199,8 +199,8 @@ function HomeLayout(props: {
                 element={<FavoritesRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
               />
               <Route
-                path="local_favorites"
-                element={<LocalFavoritesRoute session={props.session} />}
+                path="cached"
+                element={<CachedRoute session={props.session} />}
               />
               <Route
                 path="category_rank"
@@ -277,7 +277,7 @@ function FavoritesRoute(props: { session: Session; onAuthExpired: () => void }) 
   );
 }
 
-function LocalFavoritesRoute(props: { session: Session }) {
+function CachedRoute(props: { session: Session }) {
   const navigate = useNavigate();
   const location = useLocation();
   const fromPath = `${location.pathname}${location.search}`;
@@ -293,7 +293,7 @@ function LocalFavoritesRoute(props: { session: Session }) {
           chapterTitle,
           chapters,
           startPage,
-          homeSub: "local_favorites",
+          homeSub: "cached",
           fromPath,
           returnTo: { path: fromPath },
         } satisfies ReadingState,
@@ -301,7 +301,7 @@ function LocalFavoritesRoute(props: { session: Session }) {
     [fromPath, navigate],
   );
 
-  return <LocalFavoritesPage session={props.session} onOpenComic={openComic} onOpenReader={openReader} />;
+  return <CachedPage session={props.session} onOpenComic={openComic} onOpenReader={openReader} />;
 }
 
 function CategoryRankRoute(props: { session: Session; onAuthExpired: () => void }) {

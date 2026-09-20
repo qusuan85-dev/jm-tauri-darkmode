@@ -318,7 +318,7 @@ export default function HomePage(props: {
                       onClick={() => item.aid && props.onOpenComic(item.aid)}
                       disabled={!item.aid}
                     >
-                      <CoverImage src={item.cover} alt={item.title} className="h-full w-full object-cover" />
+                      <CoverImage src={item.cover} alt={item.title} aid={item.aid} className="h-full w-full object-cover" />
                     </button>
                     <div className="flex flex-1 flex-col gap-1 p-2">
                       <button
@@ -347,8 +347,8 @@ export default function HomePage(props: {
                     key={`${item.aid}-${idx}`}
                     className="flex items-center gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2"
                   >
-                    <div className="h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
-                      <CoverImage src={item.cover} alt={item.title} className="h-full w-full object-cover" />
+                    <div className="relative h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
+                      <CoverImage src={item.cover} alt={item.title} aid={item.aid} className="h-full w-full object-cover" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <button

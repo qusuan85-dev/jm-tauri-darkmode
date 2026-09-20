@@ -1,4 +1,4 @@
-import { Bookmark, Home, ArrowLeft, X } from "lucide-react";
+import { Home, ArrowLeft, X } from "lucide-react";
 import { formatChapterTitle, toNavigationId } from "../reading/navigation";
 import type { ChapterNavItem } from "../reading/navigation";
 
@@ -49,9 +49,6 @@ type ReadingPageMenuProps = {
   chapters: ChapterNavItem[];
   chapterId: string;
   onOpenChapter: (chapterId: string, chapterTitle: string) => void;
-  localFavBusy: boolean;
-  isLocalFav: boolean;
-  onToggleLocalFav: () => void;
   onGoHome: () => void;
   onBack: () => void;
   backLabel?: string;
@@ -98,20 +95,6 @@ export default function ReadingPageMenu(props: ReadingPageMenuProps) {
               <div className="text-sm text-zinc-600">{props.chapterTitle}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-              <button
-                type="button"
-                className="flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                disabled={props.localFavBusy}
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  props.onToggleLocalFav();
-                }}
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Bookmark className="h-4 w-4" />
-                  {props.isLocalFav ? "取消本地" : "本地收藏"}
-                </span>
-              </button>
               <button
                 type="button"
                 className="flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"

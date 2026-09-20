@@ -328,6 +328,7 @@ export default function HistoryPage(props: {
                       <CoverImage
                         src={cover}
                         alt={title}
+                        aid={aid}
                         className="h-full w-full object-cover"
                       />
                     </button>
@@ -406,10 +407,11 @@ export default function HistoryPage(props: {
                   key={`${aid}-${idx}`}
                   className="flex items-center gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2"
                 >
-                  <div className="h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
+                  <div className="relative h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
                     <CoverImage
                       src={cover}
                       alt={title}
+                      aid={aid}
                       className="h-full w-full object-cover"
                     />
                   </div>

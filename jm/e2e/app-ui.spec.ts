@@ -1,6 +1,17 @@
-import { expect, test } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+
+import { expect, test, type Page } from "@playwright/test";
 
 import { installTauriMock } from "./support/tauriMock";
+
+/** Optional visual review output: set JM_SHOT_DIR to dump screenshots. */
+const shotDir = process.env.JM_SHOT_DIR;
+async function shot(page: Page, name: string) {
+  if (!shotDir) return;
+  fs.mkdirSync(shotDir, { recursive: true });
+  await page.screenshot({ path: path.join(shotDir, `${name}.png`), fullPage: true });
+}
 
 test("home latest updates render as cards and open detail", async ({ page }) => {
   await installTauriMock(page, {
@@ -274,126 +285,6 @@ test("detail migrates aliased progress to the canonical work id", async ({ page 
     .toEqual({ canonicalChapter: "202", canonicalPage: 7, aliasExists: false });
 });
 
-test("local favorites filter/sort tabs persist in localStorage", async ({ page }) => {
-  await installTauriMock(page, {
-    favorites: [
-      {
-        aid: "10001",
-        title: "Alpha",
-        author: "A",
-        coverUrl: "",
-        addedAt: 100,
-        updatedAt: 100,
-        latestChapterSort: "12",
-      },
-      {
-        aid: "10002",
-        title: "Beta",
-        author: "B",
-        coverUrl: "",
-        addedAt: 200,
-        updatedAt: 200,
-        latestChapterSort: null,
-      },
-    ],
-    readProgress: {
-      "10001": { updatedAt: 300, chapterId: "10001", pageIndex: 1 },
-      "10002": { updatedAt: 50, chapterId: "10002", pageIndex: 1 },
-    },
-  });
-
-  await page.goto("/#/home/local_favorites");
-  await expect(page.getByRole("button", { name: "多话", exact: true })).toBeVisible();
-
-  await page.getByRole("button", { name: "多话", exact: true }).click();
-  await page.getByRole("button", { name: "收藏时间", exact: true }).click();
-
-  await expect(page.getByRole("button", { name: "多话", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(page.getByRole("button", { name: "收藏时间", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-
-  await expect
-    .poll(async () =>
-      page.evaluate(() => ({
-        typeFilter: localStorage.getItem("jm_type_local_favorites"),
-        sortMode: localStorage.getItem("jm_sort_local_favorites"),
-      })),
-    )
-    .toEqual({ typeFilter: "multi", sortMode: "addedAt" });
-
-  await page.reload();
-
-  await expect(page.getByRole("button", { name: "多话", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(page.getByRole("button", { name: "收藏时间", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-
-  const calls = await page.evaluate(() => (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>);
-  const calledKinds = calls
-    .filter((x) => x.cmd === "api_local_favorites_list")
-    .map((x) => x.args?.kind)
-    .filter(Boolean);
-  expect(calledKinds).toContain("multi");
-});
-
-test("local favorites list clamps long content without horizontal overflow", async ({ page }) => {
-  const longTitle =
-    "[超長漢化組] アンソロジー 寝取られ報告されながら驚くアンソロジー " +
-    "非常に長いタイトル".repeat(12);
-  const longAuthor = [
-    "218",
-    "akagaisahito",
-    "akinosora",
-    "asukaren",
-    "crow",
-    "glycogen",
-    "hinamori",
-    "hiroaki",
-    "hizukiakira",
-    "kakinonashiko",
-    "kamushi",
-    "karl",
-    "kosyo",
-    "kumaashis",
-    "kuriharakenshirou",
-    "kuronomiki",
-    "mutsutake",
-    "verylongauthornamewithoutbreakpoints".repeat(8),
-  ].join(", ");
-
-  await installTauriMock(page, {
-    favorites: [
-      {
-        aid: "777001",
-        title: longTitle,
-        author: longAuthor,
-        coverUrl: "",
-        addedAt: 100,
-        updatedAt: 100,
-        latestChapterSort: null,
-      },
-    ],
-  });
-
-  await page.goto("/#/home/local_favorites");
-  await expect(page.getByText(/AID：777001/)).toBeVisible();
-
-  const overflow = await page.evaluate(() => ({
-    html: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    body: document.body.scrollWidth - document.body.clientWidth,
-  }));
-  expect(overflow.html).toBeLessThanOrEqual(1);
-  expect(overflow.body).toBeLessThanOrEqual(1);
-});
 
 test("settings release build auto-checks update and downloads with progress", async ({ page }) => {
   await installTauriMock(page, {
@@ -443,122 +334,118 @@ test("settings release build auto-checks update and downloads with progress", as
     .toEqual({ downloadCalls: 1, openPathCalls: 1 });
 });
 
-test("local favorites multi tab can trigger latest chapter scan", async ({ page }) => {
+test("导航里不再有本地收藏，已缓存入口就位", async ({ page }) => {
+  await installTauriMock(page);
+
+  await page.goto("/#/home/home");
+
+  await expect(page.getByRole("link", { name: "已缓存" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /本地收藏/ })).toHaveCount(0);
+  await shot(page, "nav-cached-entry");
+});
+
+test("已缓存页列出缓存的本子（封面/标题/占用），并能删除", async ({ page }) => {
   await installTauriMock(page, {
-    favorites: [
-      {
-        aid: "30001",
-        title: "Gamma",
-        author: "G",
-        coverUrl: "",
-        addedAt: 100,
-        updatedAt: 100,
-        latestChapterSort: "33",
-      },
-      {
-        aid: "30002",
-        title: "Delta",
-        author: "D",
-        coverUrl: "",
-        addedAt: 90,
-        updatedAt: 90,
-        latestChapterSort: "40",
-      },
+    cachedAlbums: [
+      { aid: "90001", title: "缓存的本子A", author: "作者A", bytes: 2048, files: 3, chapters: 2 },
+      { aid: "90002", bytes: 1024, files: 1 },
     ],
   });
 
-  await page.goto("/#/home/local_favorites");
+  await page.goto("/#/home/cached");
 
-  await expect(page.getByRole("button", { name: "扫描多话最新章节", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/已缓存 · 2 个本子/)).toBeVisible();
+  await expect(page.getByText("缓存的本子A")).toBeVisible();
+  // 缓存里没存过元数据的条目会去接口补标题（mock 的 api_album 返回 AID xxx）
+  await expect(page.getByText("AID 90002")).toBeVisible();
+  await expect(page.getByText(/已存 2 话/)).toBeVisible();
+  await shot(page, "cached-page");
 
-  await page.getByRole("button", { name: "多话", exact: true }).click();
-  const scanBtn = page.getByRole("button", { name: "扫描多话最新章节", exact: true });
-  await expect(scanBtn).toBeVisible();
+  await page.getByRole("button", { name: "删除" }).first().click();
 
-  await scanBtn.click();
+  await expect(page.getByText(/已缓存 · 1 个本子/)).toBeVisible();
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls.filter((x) => x.cmd === "api_read_cache_remove").map((x) => x.args?.aid);
+      }),
+    )
+    .toEqual(["90001"]);
+});
 
-  const scanModal = page.locator(".fixed.inset-0.z-50");
-  await expect(scanModal.getByText("扫描多话最新章节", { exact: true })).toBeVisible();
-  await expect(scanModal.getByText(/进度：/)).toBeVisible();
+test("未收藏的本子可以收藏到指定收藏夹", async ({ page }) => {
+  await installTauriMock(page, {
+    favoriteFolders: [{ id: "2", name: "珍藏夹" }],
+  });
+
+  await page.goto("/#/detail/12345");
+  await page.getByRole("button", { name: "收藏", exact: true }).click();
+
+  await expect(page.getByText("收藏到收藏夹")).toBeVisible();
+  await shot(page, "favorite-folder-picker");
+  await page.getByRole("button", { name: "珍藏夹", exact: true }).click();
 
   await expect
     .poll(async () =>
       page.evaluate(() => {
         const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
-        const scanCount = calls.filter((x) => x.cmd === "api_local_favorites_scan_latest").length;
-        const multiListCount = calls.filter(
-          (x) => x.cmd === "api_local_favorites_list" && x.args?.kind === "multi",
-        ).length;
-        return { scanCount, multiListCount };
+        return {
+          toggle: calls.filter((x) => x.cmd === "api_favorite_toggle").length,
+          movedTo: calls
+            .filter((x) => x.cmd === "api_favorite_folder_move")
+            .map((x) => x.args?.folderId),
+        };
       }),
     )
-    .toEqual({ scanCount: 1, multiListCount: 2 });
-
-  await expect(scanModal.getByText("Gamma", { exact: true })).toBeVisible();
-  await expect(scanModal.getByText("扫描完成，最新第33话")).toBeVisible();
-  await expect(scanModal.getByText(/进度：\s*2\/2/)).toBeVisible();
-  await scanModal.getByRole("button", { name: "关闭", exact: true }).click();
-  await expect(scanModal).toHaveCount(0);
+    .toEqual({ toggle: 1, movedTo: ["2"] });
 });
 
-test("local favorites scan can be cancelled mid-run", async ({ page }) => {
+test("已收藏的本子可以在收藏夹之间移动，也能取消收藏", async ({ page }) => {
   await installTauriMock(page, {
-    favorites: [
-      {
-        aid: "41001",
-        title: "Alpha One",
-        author: "Author A",
-        coverUrl: "",
-        addedAt: 100,
-        updatedAt: 100,
-        latestChapterSort: "12",
-      },
-      {
-        aid: "41002",
-        title: "Beta Two",
-        author: "Author B",
-        coverUrl: "",
-        addedAt: 99,
-        updatedAt: 99,
-        latestChapterSort: "13",
-      },
-      {
-        aid: "41003",
-        title: "Gamma Three",
-        author: "Author C",
-        coverUrl: "",
-        addedAt: 98,
-        updatedAt: 98,
-        latestChapterSort: "14",
-      },
-    ],
-    // Long enough that the scan is reliably still running when the cancel
-    // button is clicked, even when the whole suite runs in parallel.
-    scanDelayMs: 900,
+    albumIsFavorite: true,
+    favoriteFolders: [{ id: "7", name: "稍后再看" }],
   });
 
-  await page.goto("/#/home/local_favorites");
-  await page.getByRole("button", { name: "多话", exact: true }).click();
-  await page.getByRole("button", { name: "扫描多话最新章节", exact: true }).click();
+  await page.goto("/#/detail/12345");
 
-  const scanModal = page.locator(".fixed.inset-0.z-50");
-  await expect(scanModal.getByText("扫描中...", { exact: true })).toBeVisible();
+  const openButton = page.getByRole("button", { name: "已收藏 · 移动", exact: true });
+  await expect(openButton).toBeVisible();
+  await openButton.click();
 
-  await scanModal.getByRole("button", { name: "取消扫描", exact: true }).click();
+  await expect(page.getByText("移动到收藏夹")).toBeVisible();
+  await page.getByRole("button", { name: "稍后再看", exact: true }).click();
 
   await expect
-    .poll(async () => {
-      return page.evaluate(() => {
+    .poll(async () =>
+      page.evaluate(() => {
         const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
-        const cancelCalls = calls.filter((x) => x.cmd === "api_local_favorites_scan_cancel").length;
-        return cancelCalls;
-      });
-    })
-    .toBe(1);
-
-  await expect(scanModal.getByText("扫描已取消").first()).toBeVisible();
-  await expect(scanModal.getByRole("button", { name: "关闭", exact: true })).toBeVisible();
-
-  await scanModal.getByRole("button", { name: "关闭", exact: true }).click();
-  await expect(scanModal).toHaveCount(0);
+        return {
+          toggles: calls.filter((x) => x.cmd === "api_favorite_toggle").length,
+          movedTo: calls
+            .filter((x) => x.cmd === "api_favorite_folder_move")
+            .map((x) => x.args?.folderId),
+        };
+      }),
+    )
+    // 已经收藏过，所以只移动、不重复 toggle
+    .toEqual({ toggles: 0, movedTo: ["7"] });
 });
+
+test("收藏列表的封面显示已缓存角标", async ({ page }) => {
+  await installTauriMock(page, {
+    favorites: [
+      { aid: "20001", title: "已缓存的本子", author: "A", coverUrl: "", addedAt: 1, updatedAt: 1 },
+      { aid: "20002", title: "没缓存的本子", author: "B", coverUrl: "", addedAt: 2, updatedAt: 2 },
+    ],
+    cachedAlbums: [{ aid: "20001" }],
+  });
+
+  await page.goto("/#/home/favorites");
+  await expect(page.getByText("已缓存的本子")).toBeVisible();
+
+  // 只有已缓存的那个封面带角标（导航里也有「已缓存」字样，所以按数据属性找）
+  await expect(page.locator('[data-cached-badge="20001"]')).toHaveCount(1);
+  await expect(page.locator('[data-cached-badge="20002"]')).toHaveCount(0);
+});
+

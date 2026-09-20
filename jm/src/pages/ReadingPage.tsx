@@ -1390,8 +1390,6 @@ export default function ReadingPage(props: {
   const pendingAnchorRef = useRef<{ chapterId: string; top: number } | null>(null);
   const pendingScrollChapterRef = useRef<string | null>(null);
   const [headerVisible, setHeaderVisible] = useState(false);
-  const [localFavBusy, setLocalFavBusy] = useState(false);
-  const [isLocalFav, setIsLocalFav] = useState(false);
   const [albumMeta, setAlbumMeta] = useState<{ title: string; author: string } | null>(null);
   const { showToast } = useToast();
 
@@ -1663,44 +1661,6 @@ export default function ReadingPage(props: {
     [rootAid],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const ok = await invoke<boolean>("api_local_favorite_has", { aid: rootAid });
-        if (!cancelled) setIsLocalFav(Boolean(ok));
-      } catch {
-        if (!cancelled) setIsLocalFav(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [rootAid]);
-
-  const handleToggleLocalFav = useCallback(() => {
-    void (async () => {
-      try {
-        setLocalFavBusy(true);
-        const { invoke } = await import("@tauri-apps/api/core");
-        const nowFav = await invoke<boolean>("api_local_favorite_toggle", {
-          aid: rootAid,
-          title: localFavTitle,
-          author: albumMeta?.author ?? "",
-          coverUrl,
-        });
-        setIsLocalFav(Boolean(nowFav));
-        showToast({ ok: true, text: nowFav ? "已添加本地收藏" : "已取消本地收藏" });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        showToast({ ok: false, text: "本地收藏失败：" + message });
-      } finally {
-        setLocalFavBusy(false);
-      }
-    })();
-  }, [albumMeta?.author, coverUrl, localFavTitle, rootAid, showToast]);
-
   const handleGoHome = useCallback(() => {
     leavingRef.current = true;
     props.onGoHome();
@@ -1817,9 +1777,6 @@ export default function ReadingPage(props: {
           chapters={sortedChapters}
           chapterId={activeActivity.chapterId}
           onOpenChapter={handleOpenChapter}
-          localFavBusy={localFavBusy}
-          isLocalFav={isLocalFav}
-          onToggleLocalFav={handleToggleLocalFav}
           onGoHome={handleGoHome}
           onBack={handleBack}
           backLabel={props.backLabel}
