@@ -535,3 +535,150 @@ test("手机端底部导航有签到入口", async ({ page }) => {
   await expect(page).toHaveURL(/\/#\/home\/daily$/);
 });
 
+test("从收藏夹点进本子再返回，仍留在原来的收藏夹与页码", async ({ page }) => {
+  await installTauriMock(page, {
+    favoriteFolders: [{ id: "2", name: "珍藏夹" }],
+    favoritesPageSize: 1,
+    favorites: [
+      { aid: "30001", title: "Alpha", author: "A", coverUrl: "", addedAt: 1, updatedAt: 1 },
+      { aid: "30002", title: "Beta", author: "B", coverUrl: "", addedAt: 2, updatedAt: 2 },
+    ],
+  });
+
+  await page.goto("/#/home/favorites?folder=2&page=2&sort=mp");
+
+  const sortSelect = page.locator("select").nth(0);
+  const folderSelect = page.locator("select").nth(1);
+  await expect(sortSelect).toHaveValue("mp");
+  await expect(folderSelect).toHaveValue("2");
+  await expect(page.getByText("Beta", { exact: true })).toBeVisible();
+
+  await page.getByText("Beta", { exact: true }).click();
+  await expect(page).toHaveURL(/\/#\/detail\/30002$/);
+
+  await page.getByRole("button", { name: "返回", exact: true }).click();
+
+  // 返回后收藏夹、页码、排序都还在（以前会掉回默认收藏夹第 1 页）
+  await expect(page).toHaveURL(/folder=2/);
+  await expect(page).toHaveURL(/page=2/);
+  await expect(page).toHaveURL(/sort=mp/);
+  await expect(page.locator("select").nth(1)).toHaveValue("2");
+  await expect(page.getByText("Beta", { exact: true })).toBeVisible();
+  await shot(page, "favorites-folder-restored");
+
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        const fav = calls.filter((x) => x.cmd === "api_favorites");
+        const last = fav[fav.length - 1];
+        return { folderId: String(last?.args?.folderId ?? ""), page: String(last?.args?.page ?? "") };
+      }),
+    )
+    .toEqual({ folderId: "2", page: "2" });
+});
+
+test("收藏夹批量整理：多选后移动到指定收藏夹", async ({ page }) => {
+  await installTauriMock(page, {
+    favoriteFolders: [{ id: "9", name: "稍后再看" }],
+    favorites: [
+      { aid: "40001", title: "Alpha", author: "A", coverUrl: "", addedAt: 1, updatedAt: 1 },
+      { aid: "40002", title: "Beta", author: "B", coverUrl: "", addedAt: 2, updatedAt: 2 },
+      { aid: "40003", title: "Gamma", author: "C", coverUrl: "", addedAt: 3, updatedAt: 3 },
+    ],
+  });
+
+  await page.goto("/#/home/favorites");
+  await page.locator("[data-batch-toggle]").click();
+
+  await page.getByRole("button", { name: "Alpha", exact: true }).click();
+  await page.getByRole("button", { name: "Gamma", exact: true }).click();
+  await expect(page.locator("[data-batch-bar]")).toContainText("已选 2 个");
+  await expect(page.locator('[data-favorite-row="40001"]')).toHaveAttribute(
+    "data-favorite-picked",
+    "1",
+  );
+
+  await page.locator("[data-batch-move]").click();
+  await shot(page, "favorites-batch-mode");
+  await page.locator('[data-batch-move-target="9"]').click();
+
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls
+          .filter((x) => x.cmd === "api_favorite_folder_move")
+          .map((x) => ({ aid: String(x.args?.aid ?? ""), folderId: String(x.args?.folderId ?? "") }));
+      }),
+    )
+    .toEqual([
+      { aid: "40001", folderId: "9" },
+      { aid: "40003", folderId: "9" },
+    ]);
+});
+
+test("收藏夹批量整理：全选与反选，并可批量取消收藏", async ({ page }) => {
+  await installTauriMock(page, {
+    favorites: [
+      { aid: "41001", title: "Alpha", author: "A", coverUrl: "", addedAt: 1, updatedAt: 1 },
+      { aid: "41002", title: "Beta", author: "B", coverUrl: "", addedAt: 2, updatedAt: 2 },
+      { aid: "41003", title: "Gamma", author: "C", coverUrl: "", addedAt: 3, updatedAt: 3 },
+    ],
+  });
+
+  await page.goto("/#/home/favorites");
+  await page.locator("[data-batch-toggle]").click();
+
+  await page.getByRole("button", { name: "全选本页", exact: true }).click();
+  await expect(page.locator("[data-batch-bar]")).toContainText("已选 3 个");
+
+  await page.getByRole("button", { name: "反选本页", exact: true }).click();
+  await expect(page.locator("[data-batch-bar]")).toContainText("已选 0 个");
+
+  await page.getByRole("button", { name: "全选本页", exact: true }).click();
+  await page.locator("[data-batch-unfavorite]").click();
+
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls
+          .filter((x) => x.cmd === "api_favorite_toggle")
+          .map((x) => String(x.args?.aid ?? ""));
+      }),
+    )
+    .toEqual(["41001", "41002", "41003"]);
+});
+
+test("收藏夹批量整理：可跨页全选整个收藏夹", async ({ page }) => {
+  await installTauriMock(page, {
+    favoritesPageSize: 2,
+    favorites: [
+      { aid: "42001", title: "A1", author: "", coverUrl: "", addedAt: 1, updatedAt: 1 },
+      { aid: "42002", title: "A2", author: "", coverUrl: "", addedAt: 2, updatedAt: 2 },
+      { aid: "42003", title: "A3", author: "", coverUrl: "", addedAt: 3, updatedAt: 3 },
+      { aid: "42004", title: "A4", author: "", coverUrl: "", addedAt: 4, updatedAt: 4 },
+      { aid: "42005", title: "A5", author: "", coverUrl: "", addedAt: 5, updatedAt: 5 },
+    ],
+  });
+
+  await page.goto("/#/home/favorites");
+  await page.locator("[data-batch-toggle]").click();
+
+  // 当前页只有 2 条
+  await expect(page.locator("[data-favorite-row]")).toHaveCount(2);
+
+  await page.getByRole("button", { name: "全选该收藏夹（所有页）", exact: true }).click();
+
+  await expect(page.locator("[data-batch-bar]")).toContainText("已选 5 个");
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls.filter((x) => x.cmd === "api_favorites").map((x) => String(x.args?.page ?? ""));
+      }),
+    )
+    .toEqual(["1", "1", "2", "3"]);
+});
+

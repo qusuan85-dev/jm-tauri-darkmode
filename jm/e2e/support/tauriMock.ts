@@ -67,6 +67,8 @@ type MockOptions = {
   };
   updateDownloadPath?: string;
   latestDelayMs?: number;
+  /** 收藏夹：把它当分页接口时每页返回多少条（默认全部返回）。 */
+  favoritesPageSize?: number;
   /** 签到：今天是否已签到（决定「今天还没签到 / 已经签过到了」）。 */
   dailySignedToday?: boolean;
   /** 签到接口 /daily_chk 返回的 msg，默认带奖励 "Jcoin:40 EXP:40"。 */
@@ -312,9 +314,16 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
           };
         }
         case "api_favorites": {
+          // 真实接口是分页的；带上 favoritesPageSize 就能测「跨页全选」
+          const page = Math.max(1, Number(args?.page ?? 1) || 1);
+          const perPage =
+            typeof payload.favoritesPageSize === "number" && payload.favoritesPageSize > 0
+              ? payload.favoritesPageSize
+              : favorites.length || 1;
+          const slice = favorites.slice((page - 1) * perPage, page * perPage);
           return {
             total: favorites.length,
-            list: favorites.map((item) => ({
+            list: slice.map((item) => ({
               id: item.aid,
               name: item.title,
               author: item.author,
