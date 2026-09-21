@@ -19,6 +19,7 @@ import { ToastProvider, useToast } from "./components/Toast";
 import HomePage from "./pages/HomePage";
 import FavoritesPage from "./pages/FavoritesPage";
 import CachedPage from "./pages/CachedPage";
+import DailyPage from "./pages/DailyPage";
 import CategoryRankPage from "./pages/CategoryRankPage";
 import HistoryPage from "./pages/HistoryPage";
 import SearchPage from "./pages/SearchPage";
@@ -33,6 +34,7 @@ type HomeSub =
   | "home"
   | "favorites"
   | "cached"
+  | "daily"
   | "category_rank"
   | "history"
   | "search"
@@ -83,6 +85,7 @@ function normalizeHomeSub(value?: string): HomeSub {
   switch (value) {
     case "favorites":
     case "cached":
+    case "daily":
     case "category_rank":
     case "history":
     case "search":
@@ -104,6 +107,8 @@ function homeTitle(sub: HomeSub) {
       return "收藏(在线)";
     case "cached":
       return "已缓存";
+    case "daily":
+      return "签到";
     case "category_rank":
       return "分类与排行";
     case "history":
@@ -201,6 +206,12 @@ function HomeLayout(props: {
               <Route
                 path="cached"
                 element={<CachedRoute session={props.session} />}
+              />
+              <Route
+                path="daily"
+                element={
+                  <DailyPage session={props.session} onAuthExpired={props.onAuthExpired} />
+                }
               />
               <Route
                 path="category_rank"

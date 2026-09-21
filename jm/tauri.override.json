@@ -1,11 +1,11 @@
 {
-  "version": "0.1.25+darkmode2",
+  "version": "0.1.25+darkmode3",
   "build": {
     "beforeBuildCommand": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build"
   },
   "bundle": {
     "android": {
-      "versionCode": 1784900001
+      "versionCode": 1784900002
     }
   }
 }

@@ -67,6 +67,10 @@ type MockOptions = {
   };
   updateDownloadPath?: string;
   latestDelayMs?: number;
+  /** 签到：今天是否已签到（决定「今天还没签到 / 已经签过到了」）。 */
+  dailySignedToday?: boolean;
+  /** 签到接口 /daily_chk 返回的 msg，默认带奖励 "Jcoin:40 EXP:40"。 */
+  dailyCheckMessage?: string;
   continuousReading?: boolean;
   /** Number of search results the backend returns per request (default: all). */
   searchPageSize?: number;
@@ -118,7 +122,6 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
 
     localStorage.setItem("jm_session_v1", JSON.stringify(defaultSession));
     localStorage.setItem("jm_auto_login", "0");
-    localStorage.setItem("jm_auto_sign", "0");
     localStorage.setItem("jm_save_password", "0");
     localStorage.setItem("jm_read_progress_v1", JSON.stringify(readProgress));
     localStorage.setItem("jm_continuous_reading", payload.continuousReading ? "1" : "0");
@@ -138,6 +141,44 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
     };
 
     const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+    // ---- daily check-in (签到) -------------------------------------------------
+    // 签到成功后会翻转成"已签到"，这样重新拉取 /daily 时的日历与状态才是真实的。
+    let dailySignedNow = Boolean(payload.dailySignedToday);
+    const dailyCheckMessage =
+      typeof payload.dailyCheckMessage === "string" && payload.dailyCheckMessage
+        ? payload.dailyCheckMessage
+        : "Jcoin:40 EXP:40";
+
+    /** 按当月真实日期造一份打卡日历（过去=未签、今天=按配置、未来=null）。 */
+    const buildDailyRecord = () => {
+      const now = new Date();
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const today = now.getDate();
+      const cells: Array<{ date: string; signed: boolean | null; bonus: boolean }> = [];
+      for (let day = 1; day <= daysInMonth; day += 1) {
+        cells.push({
+          date: String(day).padStart(2, "0"),
+          signed: day < today ? false : day === today ? dailySignedNow : null,
+          bonus: day === 5,
+        });
+      }
+      const weeks: Array<typeof cells> = [];
+      for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+      return weeks;
+    };
+
+    const buildDailyInfo = () => ({
+      daily_id: 72,
+      event_name: "9月-签到活动",
+      currentProgress: "14.3%",
+      three_days_coin: "150",
+      three_days_exp: "150",
+      seven_days_coin: "350",
+      seven_days_exp: "350",
+      record: buildDailyRecord(),
+      ...(dailySignedNow ? { error: "finished" } : {}),
+    });
 
     const defaultUpdateCheckInfo = {
       currentVersion: appVersion,
@@ -200,6 +241,14 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
         }
         case "api_comments": {
           return { total: 0, list: [] };
+        }
+        case "api_daily": {
+          return buildDailyInfo();
+        }
+        case "api_daily_check": {
+          const alreadySigned = /已\s*签\s*到|已經簽到|簽到過|已完成/.test(dailyCheckMessage);
+          if (!alreadySigned) dailySignedNow = true;
+          return { msg: dailyCheckMessage, status: "ok", daily_id: args?.dailyId ?? 72 };
         }
         case "api_export_default_dir": {
           return payload.exportDefaultDir ?? "C:/mock-export/JM";

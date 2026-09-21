@@ -133,13 +133,6 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
       return false;
     }
   });
-  const [autoSign, setAutoSign] = useState(() => {
-    try {
-      return localStorage.getItem("jm_auto_sign") === "1";
-    } catch {
-      return false;
-    }
-  });
   const [loginStatus, setLoginStatus] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginResult, setLoginResult] = useState<LoginResult | null>(null);
@@ -189,7 +182,6 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
           localStorage.setItem("jm_login_username", loginUsername);
           localStorage.setItem("jm_save_password", savePassword ? "1" : "0");
           localStorage.setItem("jm_auto_login", autoLogin ? "1" : "0");
-          localStorage.setItem("jm_auto_sign", autoSign ? "1" : "0");
           if (savePassword) {
             localStorage.setItem(
               "jm_login_password_b64",
@@ -305,23 +297,6 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
             disabled={isSubmitting}
           />
           自动登录
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={autoSign}
-            onChange={(e) => {
-              const next = e.currentTarget.checked;
-              setAutoSign(next);
-              try {
-                localStorage.setItem("jm_auto_sign", next ? "1" : "0");
-              } catch {
-                // ignore
-              }
-            }}
-            disabled={isSubmitting}
-          />
-          自动打卡
         </label>
       </div>
 

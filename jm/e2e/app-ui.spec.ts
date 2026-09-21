@@ -449,3 +449,89 @@ test("收藏列表的封面显示已缓存角标", async ({ page }) => {
   await expect(page.locator('[data-cached-badge="20002"]')).toHaveCount(0);
 });
 
+test("签到页可以手动签到并显示增加的金币与经验", async ({ page }) => {
+  await installTauriMock(page, { dailySignedToday: false, dailyCheckMessage: "Jcoin:40 EXP:40" });
+
+  await page.goto("/#/home/daily");
+
+  await expect(page.getByText("9月-签到活动")).toBeVisible();
+  await expect(page.locator('[data-daily-status="unsigned"]')).toContainText("今天还没签到");
+  await expect(page.locator('[data-daily-status="unsigned"]')).toContainText("连续进度 14.3%");
+
+  await page.getByRole("button", { name: "立即签到", exact: true }).click();
+
+  // 用数据属性定位奖励块，避免和 Toast 里的文案撞车
+  await expect(page.locator('[data-daily-reward="coin"]')).toHaveText(/\+40 金币/);
+  await expect(page.locator('[data-daily-reward="exp"]')).toHaveText(/\+40 经验/);
+  // 重新拉取后今天应变成已签到
+  await expect(page.locator('[data-daily-status="signed"]')).toContainText("明天再来");
+  await shot(page, "daily-checkin-success");
+
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls
+          .filter((x) => x.cmd === "api_daily_check")
+          .map((x) => ({ userId: x.args?.userId, dailyId: String(x.args?.dailyId ?? "") }));
+      }),
+    )
+    .toEqual([{ userId: "10001", dailyId: "72" }]);
+});
+
+test("今天已签到时签到页给出提示而不是奖励", async ({ page }) => {
+  await installTauriMock(page, {
+    dailySignedToday: true,
+    dailyCheckMessage: "今天已經簽到過了",
+  });
+
+  await page.goto("/#/home/daily");
+
+  await expect(page.locator('[data-daily-status="signed"]')).toContainText("明天再来");
+  // 日历里今天那一格应标记为已签到
+  const today = String(new Date().getDate()).padStart(2, "0");
+  await expect(page.locator(`[data-daily-cell="${today}"]`)).toHaveAttribute(
+    "data-daily-signed",
+    "1",
+  );
+
+  await page.getByRole("button", { name: "再签一次", exact: true }).click();
+  await expect(page.locator("[data-daily-message]")).toContainText("今天已經簽到過了");
+  await expect(page.locator('[data-daily-reward="coin"]')).toHaveCount(0);
+  await expect(page.locator('[data-daily-reward="exp"]')).toHaveCount(0);
+});
+
+test("签到页的自动打卡开关会持久化，侧边栏也能进入签到", async ({ page }) => {
+  await installTauriMock(page);
+
+  await page.goto("/#/home/home");
+  await page.getByRole("link", { name: "签到", exact: true }).click();
+  await expect(page).toHaveURL(/\/#\/home\/daily$/);
+
+  const toggle = page.getByRole("checkbox");
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+
+  await expect
+    .poll(async () => page.evaluate(() => localStorage.getItem("jm_auto_sign")))
+    .toBe("1");
+
+  await page.reload();
+  await expect(page.getByRole("checkbox")).toBeChecked();
+});
+
+test("手机端底部导航有签到入口", async ({ page }) => {
+  await installTauriMock(page);
+  await page.setViewportSize({ width: 412, height: 915 });
+
+  await page.goto("/#/home/home");
+
+  const bottomNav = page.locator(".mobile-bottom-nav");
+  await expect(bottomNav).toBeVisible();
+  await expect(bottomNav.getByText("签到", { exact: true })).toBeVisible();
+  await shot(page, "daily-bottom-nav");
+
+  await bottomNav.getByText("签到", { exact: true }).click();
+  await expect(page).toHaveURL(/\/#\/home\/daily$/);
+});
+

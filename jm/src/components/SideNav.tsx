@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import {
   BookOpen,
+  CalendarCheck,
   Clock,
   HardDriveDownload,
   Heart,
@@ -47,6 +48,7 @@ export default function SideNav(props: {
     const bottomItems = [
       { key: "home" as const, label: "首页", Icon: Home, to: "/home/home" },
       { key: "read" as const, label: "阅读", Icon: BookOpen },
+      { key: "daily" as const, label: "签到", Icon: CalendarCheck, to: "/home/daily" },
       { key: "category_rank" as const, label: "排行", Icon: Tags, to: "/home/category_rank" },
       { key: "search" as const, label: "搜索", Icon: Search, to: "/home/search" },
       { key: "settings" as const, label: "设置", Icon: Settings, to: "/home/settings" },
@@ -147,6 +149,12 @@ export default function SideNav(props: {
             <span className="flex items-center gap-2 leading-none">
               <HardDriveDownload className={iconClass} />
               已缓存
+            </span>
+          </NavLink>
+          <NavLink to="/home/daily" className={navLinkClass}>
+            <span className="flex items-center gap-2 leading-none">
+              <CalendarCheck className={iconClass} />
+              签到
             </span>
           </NavLink>
           <NavLink to="/home/category_rank" className={navLinkClass}>

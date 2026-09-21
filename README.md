@@ -15,6 +15,7 @@
 | 3 | 圆角体系、底部导航与浮层液态玻璃、7 套主题色、导出到指定目录 / PDF、更换应用图标 | [`docs/03-ui-export-and-icon.md`](docs/03-ui-export-and-icon.md) |
 | 4 | 真机反馈修复：底部导航「阅读」菜单被裁剪、导出图片/PDF 全部失败、导出图片错位条带 | [`docs/03-ui-export-and-icon.md`](docs/03-ui-export-and-icon.md) |
 | 5 | 收藏时可指定收藏夹、新增「已缓存」页面与封面角标、移除「本地收藏」 | [`docs/05-favorites-and-cache.md`](docs/05-favorites-and-cache.md) |
+| 6 | 新增签到页面：手动签到并显示增加的经验与金币、本月打卡日历、自动打卡开关 | [`docs/06-daily-checkin.md`](docs/06-daily-checkin.md) |
 
 > 面向使用者的更新说明（每个版本的新增 / 移除 / 修复 / 安装方式与校验值）见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -36,6 +37,10 @@
 | --- | --- |
 | ![已缓存](docs/images/cached-page.png) | ![收藏夹](docs/images/favorite-folder-picker.png) |
 
+| 签到（含奖励） | 手机端底部导航 |
+| --- | --- |
+| ![签到](docs/images/daily-checkin-success.png) | ![底部导航](docs/images/daily-bottom-nav.png) |
+
 ### 导出图片错位的修复（第 4 批）
 
 禁漫的每张图在服务器上是「横向切成 N 条、倒序存放」的，N 由 `md5(章节ID + 文件名)` 决定，且**文件名不含扩展名**。
@@ -47,10 +52,10 @@
 
 | 文件 | ABI | sha256 |
 | --- | --- | --- |
-| `jm-0.1.25-darkmode2-universal.apk` | arm64-v8a / armeabi-v7a / x86 / x86_64 | `a34404e814924fd6252395a9ac5116cff388c37be94a9e1741d50cb2c75ee835` |
-| `jm-0.1.25-darkmode2-arm64.apk` | arm64-v8a | `9bcdb8a61114269d940e0bfff524ca16a4337270d5bf68e75b0e6b1e18e45249` |
+| `jm-0.1.25-darkmode3-universal.apk` | arm64-v8a / armeabi-v7a / x86 / x86_64 | `cd15436abece364bd223d605be83dbb3a40b005208d2499d5318b22e15b4d1e4` |
+| `jm-0.1.25-darkmode3-arm64.apk` | arm64-v8a | `c4aeeea0392796423bbbaa8447bd6dc1a2afadfd563a98a752a8443c0a539d9b` |
 
-- 包名 `com.aa.jm`，版本名 `0.1.25+darkmode2`（`versionCode 1784900001`），高于原版，**可直接覆盖安装**，登录态 / 收藏 / 阅读进度不丢。
+- 包名 `com.aa.jm`，版本名 `0.1.25+darkmode3`（`versionCode 1784900002`），高于原版，**可直接覆盖安装**，登录态 / 收藏 / 阅读进度不丢。
 - ⚠️ 本仓库**不包含签名密钥**：`jm/jm-release.keystore` 与 `jm/src-tauri/keystore.properties` 已加入 `.gitignore`。
   自己构建时需要一个**同包名**的签名密钥，否则无法覆盖安装官方版（卸载重装会丢数据）。
 - 构建方式见 [`docs/04-build-and-release.md`](docs/04-build-and-release.md)。
