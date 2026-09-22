@@ -196,13 +196,6 @@ struct ReadOfflineChapterMeta {
     updated_at: i64,
 }
 
-#[derive(Debug, Clone)]
-struct ReadCacheDirStats {
-    aid: String,
-    bytes: u64,
-    newest_ms: i64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ReadProgressEntry {
@@ -948,56 +941,6 @@ fn scan_dir_bytes(path: &std::path::Path) -> (u64, u64, i64) {
         }
     }
     (files, bytes, newest_ms)
-}
-
-fn scan_read_cache_dirs(read_dir: &std::path::Path) -> Vec<ReadCacheDirStats> {
-    let mut out = Vec::new();
-    let entries = match std::fs::read_dir(read_dir) {
-        Ok(v) => v,
-        Err(_) => return out,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let aid = entry.file_name().to_string_lossy().to_string();
-        let mut bytes = 0u64;
-        let mut newest_ms = 0i64;
-        let mut stack = vec![path];
-        while let Some(dir) = stack.pop() {
-            let sub_entries = match std::fs::read_dir(&dir) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            for sub in sub_entries.flatten() {
-                let p = sub.path();
-                if let Ok(meta) = sub.metadata() {
-                    if meta.is_dir() {
-                        stack.push(p);
-                    } else if meta.is_file() {
-                        bytes += meta.len();
-                        if let Ok(modified) = meta.modified() {
-                            if let Ok(ms) = modified.duration_since(std::time::UNIX_EPOCH) {
-                                let ms = ms.as_millis() as i64;
-                                if ms > newest_ms {
-                                    newest_ms = ms;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        out.push(ReadCacheDirStats {
-            aid,
-            bytes,
-            newest_ms,
-        });
-    }
-    out
 }
 
 fn now_unix_ms() -> i64 {
@@ -2888,32 +2831,22 @@ fn api_read_cache_refresh(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn api_read_cache_cleanup(app: tauri::AppHandle, max_bytes: u64) -> Result<ReadCacheStats, String> {
-    let base = resolve_read_cache_dir(&app)?;
+fn api_read_cache_cleanup(_app: tauri::AppHandle) -> Result<ReadCacheStats, String> {
+    let base = resolve_data_dir()?;
     let read_dir = base.join("read");
     if !read_dir.exists() {
         return Ok(ReadCacheStats::default());
     }
 
-    let mut entries = scan_read_cache_dirs(&read_dir);
-    let mut total: u64 = entries.iter().map(|e| e.bytes).sum();
-
-    if total > max_bytes {
-        entries.sort_by(|a, b| a.newest_ms.cmp(&b.newest_ms));
-        for entry in entries {
-            if total <= max_bytes {
-                break;
-            }
-            let dir = read_dir.join(sanitize_path_component(&entry.aid));
-            if let Err(e) = std::fs::remove_dir_all(&dir) {
-                logl!("[tauri][cache] remove {:?} failed: {}", dir, e);
-                continue;
-            }
-            total = total.saturating_sub(entry.bytes);
+    for entry in std::fs::read_dir(&read_dir).map_err(|e| format!("read dir failed: {e}"))? {
+        let path = match entry { Ok(e) => e.path(), Err(_) => continue };
+        if !path.is_dir() {
+            continue;
         }
+        let _ = std::fs::remove_dir_all(&path);
     }
 
-    update_read_cache_stats(app.clone())?;
+    update_read_cache_stats(_app)?;
     api_read_cache_stats()
 }
 

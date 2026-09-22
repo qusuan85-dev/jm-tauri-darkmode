@@ -91,6 +91,14 @@ type ApiLatencyCell = {
   ok: boolean;
 };
 
+type ReadCacheStats = {
+  totalBytes: number;
+  totalFiles: number;
+  totalComics: number;
+  updatedAt: number;
+  elapsedMs?: number;
+};
+
 type ReadCacheComicStats = {
   aid: string;
   files: number;
@@ -445,17 +453,11 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
     setCacheError("");
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const stats = await invoke<{
-        totalBytes: number;
-        totalFiles: number;
-        totalComics: number;
-        updatedAt: number;
-        elapsedMs?: number;
-      }>("api_read_cache_cleanup", { maxBytes: 2 * 1024 * 1024 * 1024 });
+      const stats = await invoke<ReadCacheStats>("api_read_cache_cleanup");
       const items = await invoke<ReadCacheComicStats[]>("api_read_cache_list");
       setCacheStats(stats);
       setCacheItems(Array.isArray(items) ? items : []);
-      showToast({ ok: true, text: "清理完成" });
+      showToast({ ok: true, text: "已清除全部阅读缓存" });
       void refreshCachedAlbums();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -674,7 +676,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
             </button>
             {cacheTipOpen ? (
               <div className="glass absolute left-1/2 top-9 z-10 w-[min(320px,90vw)] -translate-x-1/2 break-words rounded-xl p-2 text-xs text-zinc-700 md:left-auto md:right-0 md:w-64 md:translate-x-0">
-                超过 2GB 时，从最久未访问的漫画开始清理；每次清理仅删除阅读缓存目录下的内容。
+                 点击「清除缓存」将删除全部阅读缓存。每次清理仅删除阅读缓存目录下的内容。
               </div>
             ) : null}
           </div>
