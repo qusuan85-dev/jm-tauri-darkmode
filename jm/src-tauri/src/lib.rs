@@ -4831,7 +4831,7 @@ pub fn run() {
             api_favorite_toggle,
             api_favorite_folder_add,
             api_favorite_folder_del,
-            api_favorite_folder_move
+            api_favorite_folder_move,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

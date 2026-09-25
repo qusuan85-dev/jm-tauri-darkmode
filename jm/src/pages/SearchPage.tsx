@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2, X } from "lucide-react";
 
@@ -6,9 +6,10 @@ import type { Session } from "../auth/session";
 import { isAuthExpiredError } from "../auth/errors";
 import CoverImage from "../components/CoverImage";
 import ListViewToggle from "../components/ListViewToggle";
-import { getImgBase } from "../config/endpoints";
+import { createSearchAdapter } from "../sources/searchAdapter";
+import type { SearchAdapter } from "../sources/searchAdapter";
 
-type SortKey = "mr" | "mv" | "mp" | "tf";
+type SortKey = string;
 
 const SORT_KEY = "jm_search_sort";
 const HISTORY_KEY = "jm_search_history";
@@ -47,7 +48,7 @@ type SearchState = {
 };
 
 function isSortKey(value: unknown): value is SortKey {
-  return value === "mr" || value === "mv" || value === "mp" || value === "tf";
+  return typeof value === "string" && value.length > 0;
 }
 
 function loadSort(): SortKey {
@@ -180,15 +181,21 @@ function saveState(state: SearchState) {
   }
 }
 
-function aidOf(item: any): string {
-  return typeof item?.id === "string" || typeof item?.id === "number" ? String(item.id) : "";
-}
-
 export default function SearchPage(props: {
   session: Session;
   onAuthExpired: () => void;
-  onOpenComic: (aid: string) => void;
+  onOpenComic?: (aid: string) => void;
+  /** Pre-built adapter; when omitted the JM one is used. */
+  adapter?: SearchAdapter;
 }) {
+  const adapter = useMemo(() => props.adapter ?? createSearchAdapter(), [props.adapter]);
+  const openResult = useCallback(
+    (item: unknown) => {
+      const id = adapter.itemId(item);
+      if (id) props.onOpenComic?.(id);
+    },
+    [adapter, props.onOpenComic],
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const scrollSentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -197,13 +204,15 @@ export default function SearchPage(props: {
   const [initial] = useState<SearchState>(() => {
     const urlQuery = (searchParams.get("q") ?? "").trim();
     const cached = loadState();
+    const coerceSort = (value?: string) =>
+      adapter.sorts.some((option) => option.key === value) ? value! : adapter.defaultSort;
     if (urlQuery && urlQuery !== (cached?.query ?? "")) {
       const rawSort = searchParams.get("sort");
       return {
         ...emptyState(),
         queryInput: urlQuery,
         query: urlQuery,
-        sort: isSortKey(rawSort) ? rawSort : (cached?.sort ?? loadSort()),
+        sort: coerceSort(rawSort ?? cached?.sort),
       };
     }
     return cached ?? emptyState();
@@ -285,22 +294,21 @@ export default function SearchPage(props: {
     setLoading(true);
     setErrorText("");
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const data = await invoke<any>("api_search", {
-        searchQuery: committedQuery,
+      const result = await adapter.fetchPage({
+        query: committedQuery,
         sort: searchSort,
-        page: String(nextServerPage),
+        page: nextServerPage,
         cookies: props.session.cookies,
       });
-      const pageItems: any[] = Array.isArray(data?.content) ? data.content : [];
-      const apiTotal = typeof data?.total === "number" ? data.total : total;
+      const pageItems: any[] = result.list;
+      const apiTotal = result.total ?? total;
 
       // Drop duplicates: live search results shift between requests, so the
       // next page can repeat entries we already have.
-      const seen = new Set(items.map(aidOf).filter(Boolean));
+      const seen = new Set(items.map((item) => adapter.itemId(item)).filter(Boolean));
       const fresh: any[] = [];
       for (const item of pageItems) {
-        const aid = aidOf(item);
+        const aid = adapter.itemId(item);
         if (aid && seen.has(aid)) continue;
         if (aid) seen.add(aid);
         fresh.push(item);
@@ -334,6 +342,7 @@ export default function SearchPage(props: {
       setLoading(false);
     }
   }, [
+    adapter,
     batchSize,
     committedQuery,
     emptyStreak,
@@ -352,9 +361,9 @@ export default function SearchPage(props: {
     (options?: { query?: string; sort?: SortKey }) => {
       const q = (options?.query ?? queryInput).trim();
       if (!q) return;
-      const m = q.match(/^(?:jm|JM)?(\d+)$/);
+      const m = adapter.numericShortcut ? q.match(/^(?:jm|JM)?(\d+)$/) : null;
       if (m) {
-        props.onOpenComic(m[1]);
+        props.onOpenComic?.(m[1]);
         return;
       }
       const sort = options?.sort ?? searchSort;
@@ -381,7 +390,7 @@ export default function SearchPage(props: {
         return nextHistory;
       });
     },
-    [props.onOpenComic, queryInput, searchSort, setSearchParams],
+    [adapter, props.onOpenComic, queryInput, searchSort, setSearchParams],
   );
 
   // Kick off the first request for a query that has no results yet (new search,
@@ -569,7 +578,7 @@ export default function SearchPage(props: {
             <input
               ref={queryInputRef}
               className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm"
-              placeholder="输入关键词 / JM12345"
+              placeholder={adapter.placeholder}
               value={queryInput}
               onFocus={() => {
                 setHistory(loadHistory());
@@ -687,10 +696,11 @@ export default function SearchPage(props: {
               if (committedQuery.trim()) runSearch({ sort: next, query: committedQuery });
             }}
           >
-            <option value="mr">最新</option>
-            <option value="mv">最多点击</option>
-            <option value="mp">最多图片</option>
-            <option value="tf">最多爱心</option>
+            {adapter.sorts.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
           </select>
           <label className="flex h-9 items-center gap-2 rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-700">
             <span className="whitespace-nowrap text-xs text-zinc-500">每次加载</span>
@@ -752,20 +762,10 @@ export default function SearchPage(props: {
             ) : null}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {list.map((item, idx) => {
-                const aid = aidOf(item);
-                const title =
-                  typeof item?.name === "string"
-                    ? item.name
-                    : typeof item?.title === "string"
-                      ? item.title
-                      : `搜索结果 ${idx + 1}`;
-                const author =
-                  typeof item?.author === "string"
-                    ? item.author
-                    : Array.isArray(item?.author)
-                      ? item.author.join(", ")
-                      : "";
-                const cover = aid ? `${getImgBase()}/media/albums/${aid}_3x4.jpg` : "";
+                const aid = adapter.itemId(item);
+                const title = adapter.itemTitle(item) || `搜索结果 ${idx + 1}`;
+                const author = adapter.itemAuthor(item);
+                const cover = adapter.itemCover(item);
                 return (
                   <div
                     key={`${aid}-${idx}`}
@@ -774,7 +774,7 @@ export default function SearchPage(props: {
                     <button
                       type="button"
                       className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-100"
-                      onClick={() => aid && props.onOpenComic(aid)}
+                      onClick={() => openResult(item)}
                       disabled={!aid}
                     >
                       <CoverImage src={cover} alt={title} aid={aid} className="h-full w-full object-cover" />
@@ -783,7 +783,7 @@ export default function SearchPage(props: {
                       <button
                         type="button"
                         className="line-clamp-2 text-left text-sm font-medium text-zinc-900 hover:underline"
-                        onClick={() => aid && props.onOpenComic(aid)}
+                        onClick={() => openResult(item)}
                         disabled={!aid}
                       >
                         {title}
@@ -791,7 +791,7 @@ export default function SearchPage(props: {
                       <div className="truncate text-xs text-zinc-600">
                         {author ? `作者：${author}` : "作者：—"}
                       </div>
-                      <div className="truncate text-xs text-zinc-500">AID：{aid || "—"}</div>
+                      <div className="truncate text-xs text-zinc-500">{adapter.idLabel}：{aid || "—"}</div>
                     </div>
                   </div>
                 );
@@ -801,26 +801,16 @@ export default function SearchPage(props: {
         ) : (
           <div className="flex flex-col gap-2">
             {list.map((item, idx) => {
-              const aid = aidOf(item);
-              const title =
-                typeof item?.name === "string"
-                  ? item.name
-                  : typeof item?.title === "string"
-                    ? item.title
-                    : `搜索结果 ${idx + 1}`;
-              const author =
-                typeof item?.author === "string"
-                  ? item.author
-                  : Array.isArray(item?.author)
-                    ? item.author.join(", ")
-                    : "";
+              const aid = adapter.itemId(item);
+              const title = adapter.itemTitle(item) || `搜索结果 ${idx + 1}`;
+              const author = adapter.itemAuthor(item);
               const categoryMain =
                 typeof item?.category?.title === "string" ? item.category.title : "";
               const categorySub =
                 typeof item?.category_sub?.title === "string" ? item.category_sub.title : "";
               const category =
                 categoryMain && categorySub ? `${categoryMain}/${categorySub}` : categoryMain || categorySub;
-              const cover = aid ? `${getImgBase()}/media/albums/${aid}_3x4.jpg` : "";
+              const cover = adapter.itemCover(item);
 
               return (
                 <div
@@ -835,7 +825,7 @@ export default function SearchPage(props: {
                       <button
                         type="button"
                         className="line-clamp-2 text-left text-sm font-medium text-zinc-900 hover:underline"
-                        onClick={() => aid && props.onOpenComic(aid)}
+                        onClick={() => openResult(item)}
                         disabled={!aid}
                       >
                         {title}
@@ -843,14 +833,14 @@ export default function SearchPage(props: {
                       <div className="mt-1 text-xs text-zinc-600">
                         {author ? `作者：${author} · ` : ""}
                         {category ? `分类：${category} · ` : ""}
-                        AID：{aid || "—"}
+                        {adapter.idLabel}：{aid || "—"}
                       </div>
                     </div>
                   </div>
                   <button
                     type="button"
                     className="h-8 flex-none rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={() => aid && props.onOpenComic(aid)}
+                    onClick={() => openResult(item)}
                     disabled={!aid}
                   >
                     详情

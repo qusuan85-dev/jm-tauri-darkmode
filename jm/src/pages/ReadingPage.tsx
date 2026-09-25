@@ -9,6 +9,8 @@ import { upsertReadProgress } from "../reading/progress";
 import type { ReadProgress } from "../reading/progress";
 import { formatChapterTitle, toNavigationId } from "../reading/navigation";
 import type { ChapterNavItem } from "../reading/navigation";
+import { createReadingAdapter } from "../sources/readingAdapter";
+import type { ReadImage, ReadingAdapter } from "../sources/readingAdapter";
 import ReadingPageMenu from "./ReadingPageMenu";
 import ReadingPullContainer from "./ReadingPullContainer";
 import {
@@ -32,12 +34,12 @@ type LoadInfoStats = {
 
 type ProcessedMap = Record<number, { url?: string; error?: string; retries?: number }>;
 
-type ReadImage = { raw: string; url: string; pictureName: string };
-
 type Ref<T> = { current: T };
 
 type ReadingSchedulerProps = {
   aid: string;
+  chapterId: string;
+  adapter: ReadingAdapter;
   startPage?: number;
   currentPage: number;
   visibleStart: number;
@@ -300,11 +302,13 @@ const ReadingScheduler = memo(function ReadingScheduler(props: ReadingSchedulerP
           const img = imgs[idx];
           if (!img) return;
           const num = Math.max(1, segs?.[idx] ?? 1);
-          const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
-          const fileOrUrl = await invoke<string>("api_image_descramble_file", {
-            url: img.url,
-            num,
+          const { convertFileSrc } = await import("@tauri-apps/api/core");
+          const fileOrUrl = await props.adapter.resolveImage({
             aid: props.aid,
+            chapterId: props.chapterId,
+            image: img,
+            index: idx,
+            num,
             readKey: props.readKeyRef.current,
           });
           if (props.leavingRef.current) return;
@@ -387,27 +391,6 @@ const ReadingScheduler = memo(function ReadingScheduler(props: ReadingSchedulerP
   return null;
 });
 
-
-type Chapter = {
-  id: string | number;
-  name?: string;
-  series?: Array<{ id: string | number; sort?: string | number; name?: string }>;
-  images?: string[];
-};
-
-type OfflineChapterMeta = {
-  chapter?: unknown | null;
-  scrambleId?: number | null;
-  segmentNums?: number[];
-  updatedAt?: number;
-};
-
-type OfflineCacheMeta = {
-  aid: string;
-  album?: unknown | null;
-  chapters?: Record<string, OfflineChapterMeta>;
-  updatedAt?: number;
-};
 
 type ChapterMeta = {
   chapterId: string;
@@ -523,39 +506,10 @@ const ReadingImageList = memo(function ReadingImageList(props: ReadingImageListP
   );
 });
 
-function normalizeImgUrl(p: string, chapterId: string) {
-  if (!p) return "";
-  if (p.startsWith("http://") || p.startsWith("https://")) return p;
-  const base = getImgBase();
-  if (p.startsWith("/")) return `${base}${p}`;
-  return `${base}/media/photos/${chapterId}/${p}`;
-}
-
-function numKey(s: string): number | null {
-  const m = s.match(/\d+/);
-  if (!m) return null;
-  const n = Number(m[0]);
-  return Number.isFinite(n) ? n : null;
-}
-
-function pictureNameFromPath(p: string): string {
-  const base = p.split("/").pop() ?? p;
-  return base.split(".")[0] ?? "";
-}
-
 function isEditingKeyTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   return ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
-}
-
-function toAuthorText(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (typeof v === "number") return String(v);
-  if (Array.isArray(v)) {
-    return v.map((x) => toAuthorText(x)).filter(Boolean).join(", ");
-  }
-  return "";
 }
 
 function getLocalImageScaleKey(aid: string) {
@@ -814,94 +768,48 @@ function useLoadInfoStats(
 function useChapterLoad(params: {
   aid: string;
   chapterId: string;
-  cookies: Session["cookies"];
+  adapter: ReadingAdapter;
   showToast: (payload: { ok: boolean; text: string }) => void;
 }) {
-  const [chapter, setChapter] = useState<Chapter | null>(null);
+  const [raw, setRaw] = useState<unknown>(null);
+  const [images, setImages] = useState<ReadImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [scrambleId, setScrambleId] = useState<number | null>(null);
   const [scrambleError, setScrambleError] = useState<string>("");
   const [segmentNums, setSegmentNums] = useState<number[] | null>(null);
   const chapterLoadToken = useRef(0);
 
-  const images = useMemo<ReadImage[]>(() => {
-    const list = Array.isArray(chapter?.images) ? chapter!.images! : [];
-    const sorted = [...list].sort((a, b) => {
-      const na = numKey(a);
-      const nb = numKey(b);
-      if (na == null && nb == null) return a.localeCompare(b);
-      if (na == null) return 1;
-      if (nb == null) return -1;
-      return na - nb;
-    });
-    return sorted
-      .map((p) => ({
-        raw: p,
-        url: normalizeImgUrl(p, params.chapterId),
-        pictureName: pictureNameFromPath(p),
-      }))
-      .filter((x) => Boolean(x.url));
-  }, [chapter, params.chapterId]);
-
+  // Everything source-specific — which images exist, their order, how each one
+  // becomes renderable, and the offline replay — lives behind the adapter.
   const loadChapter = useCallback(async () => {
     const token = ++chapterLoadToken.current;
     setLoading(true);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const [raw, scramble] = await Promise.all([
-        invoke<unknown>("api_chapter", {
-          id: params.chapterId,
-          cookies: params.cookies,
-        }),
-        invoke<number>("api_chapter_scramble_id", { id: params.chapterId }).catch((e) => {
-          const msg = e instanceof Error ? e.message : String(e);
-          if (token === chapterLoadToken.current) setScrambleError(msg);
-          return 220980;
-        }),
-      ]);
-      if (token !== chapterLoadToken.current) return;
-      setChapter(raw as Chapter);
-      setScrambleId(scramble);
-      setSegmentNums(null);
-      void invoke("api_read_offline_cache_upsert_chapter", {
+      const result = await params.adapter.loadSegment({
         aid: params.aid,
         chapterId: params.chapterId,
-        chapter: raw,
-        scrambleId: scramble,
-        segmentNums: [],
-      }).catch(() => {
-        // ignore offline metadata write failures
       });
-
+      if (token !== chapterLoadToken.current) return;
+      setRaw(result.raw);
+      setImages(result.images);
+      setScrambleId(result.scrambleId);
+      setSegmentNums(result.segmentNums);
     } catch (e) {
       if (token !== chapterLoadToken.current) return;
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const cached = await invoke<OfflineCacheMeta | null>("api_read_offline_cache_get", {
-          aid: params.aid,
-        });
-        const cachedChapter = cached?.chapters?.[params.chapterId];
-        if (cachedChapter?.chapter) {
-          setChapter(cachedChapter.chapter as Chapter);
-          setScrambleId(cachedChapter.scrambleId ?? 220980);
-          setSegmentNums(cachedChapter.segmentNums?.length ? cachedChapter.segmentNums : null);
-          return;
-        }
-      } catch {
-        // fall through to the original error
-      }
       const msg = e instanceof Error ? e.message : String(e);
       params.showToast({ ok: false, text: `章节加载失败：${msg}` });
-      setChapter(null);
+      setRaw(null);
+      setImages([]);
       setScrambleId(null);
       setSegmentNums(null);
     } finally {
       if (token === chapterLoadToken.current) setLoading(false);
     }
-  }, [params.aid, params.chapterId, params.cookies, params.showToast]);
+  }, [params.adapter, params.aid, params.chapterId, params.showToast]);
 
   useEffect(() => {
-    setChapter(null);
+    setRaw(null);
+    setImages([]);
     setScrambleId(null);
     setScrambleError("");
     setSegmentNums(null);
@@ -917,37 +825,31 @@ function useChapterLoad(params: {
     let cancelled = false;
     const run = async () => {
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const nums = await invoke<number[]>("api_segmentation_nums", {
-          epsId: params.chapterId,
+        const nums = await params.adapter.computeSegmentNums({
+          aid: params.aid,
+          chapterId: params.chapterId,
           scrambleId,
-          pictureNames: images.map((i) => i.pictureName),
+          images,
+          raw,
         });
         if (cancelled) return;
-        setSegmentNums(nums);
-        if (chapter) {
-          void invoke("api_read_offline_cache_upsert_chapter", {
-            aid: params.aid,
-            chapterId: params.chapterId,
-            chapter,
-            scrambleId,
-            segmentNums: nums,
-          }).catch(() => {
-            // ignore offline metadata write failures
-          });
-        }
-      } catch {
+        setSegmentNums(nums?.length === images.length ? nums : images.map(() => 1));
+      } catch (e) {
         if (cancelled) return;
-        setSegmentNums(images.map(() => 0));
+        const msg = e instanceof Error ? e.message : String(e);
+        setScrambleError(msg);
+        // The scheduler needs a full-length array before it starts, and seed 1
+        // is a no-op for the backend, so a failed lookup still lets pages load.
+        setSegmentNums(images.map(() => 1));
       }
     };
     void run();
     return () => {
       cancelled = true;
     };
-  }, [chapter, images, params.aid, params.chapterId, scrambleId, segmentNums]);
+  }, [images, params.adapter, params.aid, params.chapterId, raw, scrambleId, segmentNums]);
 
-  return { chapter, images, loading, scrambleId, scrambleError, segmentNums, loadChapter };
+  return { chapter: raw, images, loading, scrambleId, scrambleError, segmentNums, loadChapter };
 }
 
 function useReadingWindow(params: {
@@ -1055,9 +957,10 @@ function useReadingWindow(params: {
           savePageTimerRef.current = window.setTimeout(() => {
             const entry: ReadProgress = {
               aid: params.aid,
+              source: "jm",
               updatedAt: Date.now(),
               title: params.readTitle,
-              coverUrl: params.coverUrl,
+              coverUrl: params.coverUrl || undefined,
               chapterId: params.chapterMeta.chapterId,
               chapterSort: params.chapterMeta.chapterSort,
               chapterName: params.chapterMeta.chapterName,
@@ -1142,6 +1045,7 @@ type ReadingSegmentActivity = {
 const ReadingChapterSegment = memo(function ReadingChapterSegment(props: {
   session: Session;
   aid: string;
+  adapter: ReadingAdapter;
   chapterItem: ChapterNavItem;
   startPage?: number;
   readTitle: string;
@@ -1187,7 +1091,7 @@ const ReadingChapterSegment = memo(function ReadingChapterSegment(props: {
     useChapterLoad({
       aid: props.aid,
       chapterId,
-      cookies: props.session.cookies,
+      adapter: props.adapter,
       showToast: props.showToast,
     });
   const { loadInfoStats, errorCount } = useLoadInfoStats(processed, inflightCount, segmentNums);
@@ -1288,6 +1192,8 @@ const ReadingChapterSegment = memo(function ReadingChapterSegment(props: {
 
       <ReadingScheduler
         aid={props.aid}
+        chapterId={chapterId}
+        adapter={props.adapter}
         startPage={props.startPage}
         currentPage={currentPage}
         visibleStart={visibleWindow.start}
@@ -1365,6 +1271,8 @@ export default function ReadingPage(props: {
   chapters: ChapterNavItem[];
   startPage?: number;
   backLabel?: string;
+  /** Pre-built adapter; when omitted the JM one is created. */
+  adapter?: ReadingAdapter;
   onBack: () => void;
   onGoHome: () => void;
   onOpenChapter: (chapterId: string, chapterTitle: string) => void;
@@ -1392,6 +1300,13 @@ export default function ReadingPage(props: {
   const [headerVisible, setHeaderVisible] = useState(false);
   const [albumMeta, setAlbumMeta] = useState<{ title: string; author: string } | null>(null);
   const { showToast } = useToast();
+
+  // One adapter drives every segment in this reader, so nothing else about the
+  // scrolling or preloading machinery depends on it.
+  const adapter = useMemo(
+    () => props.adapter ?? createReadingAdapter({ cookies: props.session.cookies }),
+    [props.adapter, props.session.cookies],
+  );
 
   const sortedChapters = useMemo(() => {
     const seen = new Set<string>();
@@ -1633,16 +1548,9 @@ export default function ReadingPage(props: {
         return;
       }
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const raw = await invoke<any>("api_album", {
-          id: rootAid,
-          cookies: props.session.cookies,
-        });
+        const meta = await adapter.loadAlbumMeta({ aid: rootAid });
         if (cancelled) return;
-        setAlbumMeta({
-          title: typeof raw?.name === "string" ? raw.name : "",
-          author: toAuthorText(raw?.author),
-        });
+        setAlbumMeta(meta);
       } catch {
         if (!cancelled) setAlbumMeta(null);
       }
@@ -1650,16 +1558,13 @@ export default function ReadingPage(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.session.cookies, rootAid]);
+  }, [adapter, rootAid]);
 
   const localFavTitle = useMemo(
     () => albumMeta?.title || "AID " + rootAid,
     [albumMeta?.title, rootAid],
   );
-  const coverUrl = useMemo(
-    () => getImgBase() + "/media/albums/" + rootAid + "_3x4.jpg",
-    [rootAid],
-  );
+  const coverUrl = useMemo(() => adapter.coverUrl(rootAid), [adapter, rootAid]);
 
   const handleGoHome = useCallback(() => {
     leavingRef.current = true;
@@ -1804,6 +1709,7 @@ export default function ReadingPage(props: {
               key={chapterId}
               session={props.session}
               aid={props.aid}
+              adapter={adapter}
               chapterItem={chapterItem}
               startPage={chapterId === props.chapterId ? props.startPage : undefined}
               readTitle={localFavTitle}

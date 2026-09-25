@@ -128,9 +128,12 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
 
   const [autoLogin, setAutoLogin] = useState(() => {
     try {
-      return localStorage.getItem("jm_auto_login") === "1";
+      const v = localStorage.getItem("jm_auto_login");
+      if (v === "0") return false;
+      if (v === "1") return true;
+      return true;
     } catch {
-      return false;
+      return true;
     }
   });
   const [loginStatus, setLoginStatus] = useState<string>("");

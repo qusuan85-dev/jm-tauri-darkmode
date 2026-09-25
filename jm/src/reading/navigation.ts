@@ -6,6 +6,8 @@ export type ChapterNavItem = {
 
 export type ReadingWorkKind = "single" | "multi";
 
+export type ReadingSource = "jm";
+
 export type ReadingWork = {
   workId: string;
   requestedAid: string;
@@ -16,6 +18,7 @@ export type ReadingWork = {
   kind: ReadingWorkKind;
   chapters: ChapterNavItem[];
   aliases: string[];
+  source: ReadingSource;
 };
 
 export type ReadingTarget = {
@@ -90,6 +93,7 @@ export function normalizeChapters(value: unknown, fallbackId = ""): ChapterNavIt
 export function createReadingWork(
   album: AlbumNavigationData | null | undefined,
   requestedAid: string,
+  source: ReadingSource = "jm",
 ): ReadingWork {
   const requested = toNavigationId(requestedAid);
   const albumId = toNavigationId(album?.id);
@@ -133,12 +137,14 @@ export function createReadingWork(
     kind,
     chapters,
     aliases,
+    source,
   };
 }
 
 export function createReadingWorkFromChapters(
   workId: string,
   chapters: ChapterNavItem[],
+  source: ReadingSource = "jm",
 ): ReadingWork {
   const canonicalId = toNavigationId(workId);
   return createReadingWork(
@@ -148,6 +154,7 @@ export function createReadingWorkFromChapters(
       series: chapters,
     },
     canonicalId,
+    source,
   );
 }
 
@@ -155,9 +162,10 @@ export function normalizeReadingWork(
   value: unknown,
   fallbackAid: string,
   fallbackChapters: ChapterNavItem[],
+  source: ReadingSource = "jm",
 ): ReadingWork {
   if (!value || typeof value !== "object") {
-    return createReadingWorkFromChapters(fallbackAid, fallbackChapters);
+    return createReadingWorkFromChapters(fallbackAid, fallbackChapters, source);
   }
   const raw = value as Partial<ReadingWork>;
   const requestedAid = toNavigationId(raw.requestedAid) || fallbackAid;
@@ -171,6 +179,7 @@ export function normalizeReadingWork(
       series: Array.isArray(raw.chapters) ? raw.chapters : fallbackChapters,
     },
     requestedAid,
+    source,
   );
 }
 

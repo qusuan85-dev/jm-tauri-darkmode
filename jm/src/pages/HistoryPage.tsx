@@ -88,6 +88,11 @@ export default function HistoryPage(props: {
     },
   );
 
+  const localProgress = useMemo(
+    () => (localProgressData ?? []).filter((p) => p.source === "jm"),
+    [localProgressData],
+  );
+
   const historyErrorText =
     historyError && !isAuthExpiredError(historyError)
       ? historyError instanceof Error
@@ -127,7 +132,7 @@ export default function HistoryPage(props: {
     };
 
     for (const item of apiHistoryList) add(item);
-    for (const progress of localProgressData ?? []) {
+    for (const progress of localProgress ?? []) {
       if (!progress.aid) continue;
       add({
         id: progress.aid,
@@ -140,7 +145,7 @@ export default function HistoryPage(props: {
       });
     }
     return out;
-  }, [apiHistoryList, localProgressData]);
+  }, [apiHistoryList, localProgress]);
   const total =
     typeof historyData?.total === "number"
       ? historyData.total
@@ -163,10 +168,7 @@ export default function HistoryPage(props: {
   const formatChapterTitle = (c: { id: string | number; sort?: string | number; name?: string }) =>
     `第${c.sort ?? "?"}话${c.name ? `：${c.name}` : ""}`;
 
-  const openReaderFromAid = async (
-    aid: string,
-    progress: ReturnType<typeof getReadProgress>,
-  ) => {
+  const openReaderFromAid = async (aid: string, progress: ReturnType<typeof getReadProgress>) => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const raw = await invoke<any>("api_album", {
@@ -199,6 +201,137 @@ export default function HistoryPage(props: {
       const msg = e instanceof Error ? e.message : String(e);
       showToast({ ok: false, text: `读取漫画信息失败：${msg}` });
     }
+  };
+
+  const renderHistoryItem = (item: any, idx: number) => {
+    const aid =
+      typeof item?.id === "string" || typeof item?.id === "number"
+        ? String(item.id)
+        : typeof item?.aid === "string" || typeof item?.aid === "number"
+          ? String(item.aid)
+          : "";
+    const title =
+      typeof item?.name === "string"
+        ? item.name
+        : typeof item?.title === "string"
+          ? item.title
+          : typeof item?.album_name === "string"
+            ? item.album_name
+            : `记录 ${idx + 1}`;
+    const author =
+      typeof item?.author === "string"
+        ? item.author
+        : typeof item?.author_name === "string"
+          ? item.author_name
+          : "";
+    const progress = aid ? getReadProgress("jm", aid) : null;
+    const cover =
+      typeof item?.coverUrl === "string" && item.coverUrl
+        ? item.coverUrl
+        : aid
+          ? `${getImgBase()}/media/albums/${aid}_3x4.jpg`
+          : progress?.coverUrl || "";
+
+    if (viewMode === "card") {
+      return (
+        <div
+          key={`${aid}-${idx}`}
+          className="flex h-full flex-col overflow-hidden rounded-md border border-zinc-200 bg-white"
+        >
+          <button
+            type="button"
+            className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-100"
+            onClick={() => aid && props.onOpenComic(aid)}
+            disabled={!aid}
+          >
+            <CoverImage
+              src={cover}
+              alt={title}
+              aid={aid}
+              className="h-full w-full object-cover"
+            />
+          </button>
+          <div className="flex flex-1 flex-col gap-1 p-2">
+            <button
+              type="button"
+              className="line-clamp-2 text-left text-sm font-medium text-zinc-900 hover:underline"
+              onClick={() => aid && props.onOpenComic(aid)}
+              disabled={!aid}
+            >
+              {title}
+            </button>
+            {item?.localReadProgress ? (
+              <div>
+                <span className="inline-flex h-5 items-center rounded border border-amber-200 bg-amber-50 px-1.5 text-xs text-amber-700">
+                  本地
+                </span>
+              </div>
+            ) : null}
+            <div className="truncate text-xs text-zinc-600">
+              {author ? `作者：${author}` : "作者：—"}
+            </div>
+            <div className="truncate text-xs text-zinc-500">
+              AID：{aid || "—"}
+            </div>
+            <button
+              type="button"
+              className="mt-auto h-7 rounded-md border border-zinc-200 bg-white text-xs text-zinc-900 hover:bg-zinc-50"
+              onClick={() => aid && openReaderFromAid(aid, progress)}
+              disabled={!aid}
+            >
+              {progress?.chapterId ? "继续阅读" : "阅读"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={`${aid}-${idx}`}
+        className="flex items-center gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2"
+      >
+        <div className="relative h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
+          <CoverImage
+            src={cover}
+            alt={title}
+            aid={aid}
+            className="h-full w-full object-cover"
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            className="line-clamp-2 w-full text-left text-sm font-medium text-zinc-900 hover:underline"
+            onClick={() => aid && props.onOpenComic(aid)}
+            disabled={!aid}
+          >
+            {title}
+          </button>
+          {item?.localReadProgress ? (
+            <div className="mt-1">
+              <span className="inline-flex h-5 items-center rounded border border-amber-200 bg-amber-50 px-1.5 text-xs text-amber-700">
+                本地
+              </span>
+            </div>
+          ) : null}
+          <div className="truncate text-xs text-zinc-600">
+            {author ? `作者：${author} · ` : ""}
+            AID：{aid || "—"}
+          </div>
+        </div>
+        <div className="flex flex-none items-center gap-2">
+          <button
+            type="button"
+            className="h-8 whitespace-nowrap rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-900 hover:bg-zinc-50"
+            onClick={() => aid && openReaderFromAid(aid, progress)}
+            disabled={!aid}
+          >
+            {progress?.chapterId ? "继续阅读" : "阅读"}
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -286,84 +419,7 @@ export default function HistoryPage(props: {
               </div>
             ) : null}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {historyList.map((item, idx) => {
-                const aid =
-                  typeof item?.id === "string" || typeof item?.id === "number"
-                    ? String(item.id)
-                    : typeof item?.aid === "string" || typeof item?.aid === "number"
-                      ? String(item.aid)
-                      : "";
-                const title =
-                  typeof item?.name === "string"
-                    ? item.name
-                    : typeof item?.title === "string"
-                      ? item.title
-                      : typeof item?.album_name === "string"
-                        ? item.album_name
-                        : `记录 ${idx + 1}`;
-                const author =
-                  typeof item?.author === "string"
-                    ? item.author
-                    : typeof item?.author_name === "string"
-                      ? item.author_name
-                      : "";
-                const progress = aid ? getReadProgress(aid) : null;
-                const cover =
-                  typeof item?.coverUrl === "string" && item.coverUrl
-                    ? item.coverUrl
-                    : aid
-                      ? `${getImgBase()}/media/albums/${aid}_3x4.jpg`
-                      : "";
-                return (
-                  <div
-                    key={`${aid}-${idx}`}
-                    className="flex h-full flex-col overflow-hidden rounded-md border border-zinc-200 bg-white"
-                  >
-                    <button
-                      type="button"
-                      className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-100"
-                      onClick={() => aid && props.onOpenComic(aid)}
-                      disabled={!aid}
-                    >
-                      <CoverImage
-                        src={cover}
-                        alt={title}
-                        aid={aid}
-                        className="h-full w-full object-cover"
-                      />
-                    </button>
-                    <div className="flex flex-1 flex-col gap-1 p-2">
-                      <button
-                        type="button"
-                        className="line-clamp-2 text-left text-sm font-medium text-zinc-900 hover:underline"
-                        onClick={() => aid && props.onOpenComic(aid)}
-                        disabled={!aid}
-                      >
-                        {title}
-                      </button>
-                      {item?.localReadProgress ? (
-                        <div>
-                          <span className="inline-flex h-5 items-center rounded border border-amber-200 bg-amber-50 px-1.5 text-xs text-amber-700">
-                            本地
-                          </span>
-                        </div>
-                      ) : null}
-                      <div className="truncate text-xs text-zinc-600">
-                        {author ? `作者：${author}` : "作者：—"}
-                      </div>
-                      <div className="truncate text-xs text-zinc-500">AID：{aid || "—"}</div>
-                      <button
-                        type="button"
-                        className="mt-auto h-7 rounded-md border border-zinc-200 bg-white text-xs text-zinc-900 hover:bg-zinc-50"
-                        onClick={() => aid && openReaderFromAid(aid, progress)}
-                        disabled={!aid}
-                      >
-                        {progress?.chapterId ? "继续阅读" : "阅读"}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+              {historyList.map((item, idx) => renderHistoryItem(item, idx))}
             </div>
           </div>
         ) : (
@@ -373,82 +429,7 @@ export default function HistoryPage(props: {
                 暂无浏览记录
               </div>
             ) : null}
-
-            {historyList.map((item, idx) => {
-              const aid =
-                typeof item?.id === "string" || typeof item?.id === "number"
-                  ? String(item.id)
-                : typeof item?.aid === "string" || typeof item?.aid === "number"
-                    ? String(item.aid)
-                  : "";
-              const title =
-                typeof item?.name === "string"
-                  ? item.name
-                  : typeof item?.title === "string"
-                    ? item.title
-                    : typeof item?.album_name === "string"
-                      ? item.album_name
-                      : `记录 ${idx + 1}`;
-              const author =
-                typeof item?.author === "string"
-                  ? item.author
-                : typeof item?.author_name === "string"
-                    ? item.author_name
-                  : "";
-              const progress = aid ? getReadProgress(aid) : null;
-              const cover =
-                typeof item?.coverUrl === "string" && item.coverUrl
-                  ? item.coverUrl
-                  : aid
-                    ? `${getImgBase()}/media/albums/${aid}_3x4.jpg`
-                    : "";
-              return (
-                <div
-                  key={`${aid}-${idx}`}
-                  className="flex items-center gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2"
-                >
-                  <div className="relative h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
-                    <CoverImage
-                      src={cover}
-                      alt={title}
-                      aid={aid}
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <button
-                      type="button"
-                      className="line-clamp-2 w-full text-left text-sm font-medium text-zinc-900 hover:underline"
-                      onClick={() => aid && props.onOpenComic(aid)}
-                      disabled={!aid}
-                    >
-                      {title}
-                    </button>
-                    {item?.localReadProgress ? (
-                      <div className="mt-1">
-                        <span className="inline-flex h-5 items-center rounded border border-amber-200 bg-amber-50 px-1.5 text-xs text-amber-700">
-                          本地
-                        </span>
-                      </div>
-                    ) : null}
-                  <div className="truncate text-xs text-zinc-600">
-                    {author ? `作者：${author} · ` : ""}
-                    AID：{aid || "—"}
-                  </div>
-                </div>
-                <div className="flex flex-none items-center gap-2">
-                  <button
-                    type="button"
-                    className="h-8 whitespace-nowrap rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-900 hover:bg-zinc-50"
-                    onClick={() => aid && openReaderFromAid(aid, progress)}
-                    disabled={!aid}
-                  >
-                    {progress?.chapterId ? "继续阅读" : "阅读"}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+            {historyList.map((item, idx) => renderHistoryItem(item, idx))}
           </div>
         )}
       </div>

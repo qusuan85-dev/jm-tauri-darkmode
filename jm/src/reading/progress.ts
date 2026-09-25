@@ -1,5 +1,6 @@
 export type ReadProgress = {
   aid: string;
+  source: "jm";
   updatedAt: number;
   title?: string;
   coverUrl?: string;
@@ -9,7 +10,11 @@ export type ReadProgress = {
   pageIndex?: number;
 };
 
-const KEY = "jm_read_progress_v1";
+const KEY = "jm_read_progress_v2";
+
+function makeKey(source: ReadProgress["source"], aid: string): string {
+  return `${source}:${aid}`;
+}
 
 function loadAll(): Record<string, ReadProgress> {
   try {
@@ -25,33 +30,38 @@ function saveAll(all: Record<string, ReadProgress>): void {
   localStorage.setItem(KEY, JSON.stringify(all));
 }
 
-export function getReadProgress(aid: string): ReadProgress | null {
+export function getReadProgress(source: ReadProgress["source"], aid: string): ReadProgress | null {
   const all = loadAll();
-  return all[aid] ?? null;
+  return all[makeKey(source, aid)] ?? null;
 }
 
 export function coalesceReadProgress(
+  source: ReadProgress["source"],
   canonicalAid: string,
   aliases: string[],
   metadata: Pick<ReadProgress, "title" | "coverUrl">,
 ): { progress: ReadProgress | null; removedAids: string[] } {
   const all = loadAll();
-  const keys = [...new Set([canonicalAid, ...aliases].map((aid) => aid.trim()).filter(Boolean))];
+  const keys = [
+    ...new Set([canonicalAid, ...aliases].map((aid) => makeKey(source, aid.trim())).filter(Boolean)),
+  ];
   const existing = keys
-    .map((aid) => all[aid])
+    .map((key) => all[key])
     .filter((entry): entry is ReadProgress => Boolean(entry))
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
   if (!existing) return { progress: null, removedAids: [] };
 
+  const canonicalKey = makeKey(source, canonicalAid);
   const normalized: ReadProgress = {
     ...existing,
     aid: canonicalAid,
+    source,
     title: metadata.title || existing.title,
     coverUrl: metadata.coverUrl || existing.coverUrl,
   };
-  const removedAids = keys.filter((aid) => aid !== canonicalAid && Boolean(all[aid]));
-  for (const aid of removedAids) delete all[aid];
-  all[canonicalAid] = normalized;
+  const removedAids = keys.filter((key) => key !== canonicalKey && Boolean(all[key]));
+  for (const key of removedAids) delete all[key];
+  all[canonicalKey] = normalized;
   saveAll(all);
   return { progress: normalized, removedAids };
 }
@@ -62,20 +72,24 @@ export function getAllReadProgress(): ReadProgress[] {
 
 export function upsertReadProgress(entry: ReadProgress): void {
   const all = loadAll();
-  all[entry.aid] = entry;
+  all[makeKey(entry.source, entry.aid)] = entry;
   saveAll(all);
 }
 
 export function clearReadProgress(aid: string): void {
   const all = loadAll();
-  delete all[aid];
+  delete all[makeKey("jm", aid)];
+  // Purge any row an older build left behind under the removed source, so the
+  // detritus does not linger in the user's history forever.
+  delete all[`eh:${aid}`];
   saveAll(all);
 }
 
 export function clearReadProgressAliases(aids: string[]): void {
   const all = loadAll();
   for (const aid of new Set(aids.map((value) => value.trim()).filter(Boolean))) {
-    delete all[aid];
+    delete all[makeKey("jm", aid)];
+    delete all[`eh:${aid}`];
   }
   saveAll(all);
 }

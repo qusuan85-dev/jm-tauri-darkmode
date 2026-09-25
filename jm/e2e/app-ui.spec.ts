@@ -163,8 +163,8 @@ test("continuous reader preloads and keeps adjacent chapters scrollable both way
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const progress = JSON.parse(localStorage.getItem("jm_read_progress_v1") ?? "{}");
-        return progress["123"]?.chapterId;
+        const progress = JSON.parse(localStorage.getItem("jm_read_progress_v2") ?? "{}");
+        return progress["jm:123"]?.chapterId;
       }),
     )
     .toBe("11");
@@ -174,8 +174,8 @@ test("continuous reader preloads and keeps adjacent chapters scrollable both way
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const progress = JSON.parse(localStorage.getItem("jm_read_progress_v1") ?? "{}");
-        return progress["123"]?.chapterId;
+        const progress = JSON.parse(localStorage.getItem("jm_read_progress_v2") ?? "{}");
+        return progress["jm:123"]?.chapterId;
       }),
     )
     .toBe("22");
@@ -187,8 +187,8 @@ test("continuous reader preloads and keeps adjacent chapters scrollable both way
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const progress = JSON.parse(localStorage.getItem("jm_read_progress_v1") ?? "{}");
-        return progress["123"]?.chapterId;
+        const progress = JSON.parse(localStorage.getItem("jm_read_progress_v2") ?? "{}");
+        return progress["jm:123"]?.chapterId;
       }),
     )
     .toBe("33");
@@ -200,8 +200,8 @@ test("continuous reader preloads and keeps adjacent chapters scrollable both way
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const progress = JSON.parse(localStorage.getItem("jm_read_progress_v1") ?? "{}");
-        return progress["123"]?.chapterId;
+        const progress = JSON.parse(localStorage.getItem("jm_read_progress_v2") ?? "{}");
+        return progress["jm:123"]?.chapterId;
       }),
     )
     .toBe("22");
@@ -228,7 +228,7 @@ test("detail keeps work and chapter ids separate across reading navigation", asy
   await expect(page.getByText("类型：多话 · 共 2 话", { exact: true })).toBeVisible();
 
   const progressBeforeReading = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("jm_read_progress_v1") ?? "{}"),
+    JSON.parse(localStorage.getItem("jm_read_progress_v2") ?? "{}"),
   );
   expect(progressBeforeReading).toEqual({});
 
@@ -238,8 +238,8 @@ test("detail keeps work and chapter ids separate across reading navigation", asy
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const all = JSON.parse(localStorage.getItem("jm_read_progress_v1") ?? "{}");
-        return all["100"]?.chapterId;
+        const all = JSON.parse(localStorage.getItem("jm_read_progress_v2") ?? "{}");
+        return all["jm:100"]?.chapterId;
       }),
     )
     .toBe("201");
@@ -274,11 +274,11 @@ test("detail migrates aliased progress to the canonical work id", async ({ page 
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const all = JSON.parse(localStorage.getItem("jm_read_progress_v1") ?? "{}");
+        const all = JSON.parse(localStorage.getItem("jm_read_progress_v2") ?? "{}");
         return {
-          canonicalChapter: all["100"]?.chapterId,
-          canonicalPage: all["100"]?.pageIndex,
-          aliasExists: Boolean(all["202"]),
+          canonicalChapter: all["jm:100"]?.chapterId,
+          canonicalPage: all["jm:100"]?.pageIndex,
+          aliasExists: Boolean(all["jm:202"]),
         };
       }),
     )
@@ -681,4 +681,65 @@ test("收藏夹批量整理：可跨页全选整个收藏夹", async ({ page }) 
     )
     .toEqual(["1", "1", "2", "3"]);
 });
+
+
+test("登录态丢失时用已保存的账密自动补登，不再要求手动点登录", async ({ page }) => {
+  await installTauriMock(page, {
+    hasSession: false,
+    latestItems: [{ id: "50010", name: "Auto Login Home", author: "A" }],
+  });
+  // addInitScript 按注册顺序执行，所以这里覆盖 mock 写入的默认值
+  await page.addInitScript(() => {
+    localStorage.setItem("jm_save_password", "1");
+    localStorage.setItem("jm_auto_login", "1");
+    localStorage.setItem("jm_login_username", "e2e-user");
+    localStorage.setItem("jm_login_password_b64", btoa("e2e-pass"));
+  });
+
+  await page.goto("/#/login");
+
+  // 不应停在登录页：应自动登录后跳到首页并渲染出内容
+  await expect(page).toHaveURL(/\/#\/home\/home$/, { timeout: 5000 });
+  await expect(page.getByText("Auto Login Home", { exact: true })).toBeVisible();
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls
+          .filter((x) => x.cmd === "login")
+          .map((x) => ({ username: x.args?.username, password: x.args?.password }));
+      }),
+    )
+    .toEqual([{ username: "e2e-user", password: "e2e-pass" }]);
+  // 补登后登录态应重新落盘
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = localStorage.getItem("jm_session_v1");
+        if (!raw) return null;
+        return JSON.parse(raw).user.username as string;
+      }),
+    )
+    .toBe("e2e-user");
+});
+
+test("没有保存密码时，登录态丢失仍要求手动登录", async ({ page }) => {
+  await installTauriMock(page, { hasSession: false });
+
+  await page.goto("/#/login");
+
+  // 停在登录页，且没有发起任何 login 调用
+  // （页面上有两个「登录」：顶部 tab 和提交按钮，取提交按钮那个）
+  await expect(page.getByRole("button", { name: "登录", exact: true }).nth(1)).toBeVisible();
+  await expect(page.getByLabel("用户名")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string }>;
+        return calls.filter((x) => x.cmd === "login").length;
+      }),
+    )
+    .toBe(0);
+});
+
 

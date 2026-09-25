@@ -76,6 +76,7 @@ test("详情页可以导出解密原图与 PDF，并把参数与进度传给后�
   await shot(page, "export-panel-done");
 });
 
+
 test("导出面板在深色主题下正常", async ({ page }) => {
   await openDetail(page);
   await page.evaluate(() => localStorage.setItem("jm_theme_mode", "dark"));

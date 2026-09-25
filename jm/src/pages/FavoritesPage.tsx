@@ -692,7 +692,7 @@ export default function FavoritesPage(props: {
               const aid = aidOf(item);
               const title = titleOf(item, idx);
               const author = authorOf(item);
-              const progress = aid ? getReadProgress(aid) : null;
+              const progress = aid ? getReadProgress("jm", aid) : null;
               const cover = aid ? `${getImgBase()}/media/albums/${aid}_3x4.jpg` : "";
               const picked = Boolean(aid) && selected.has(aid);
               return (
@@ -762,7 +762,7 @@ export default function FavoritesPage(props: {
               const aid = aidOf(item);
               const title = titleOf(item, idx);
               const author = authorOf(item);
-              const progress = aid ? getReadProgress(aid) : null;
+              const progress = aid ? getReadProgress("jm", aid) : null;
               const cover = aid ? `${getImgBase()}/media/albums/${aid}_3x4.jpg` : "";
               const picked = Boolean(aid) && selected.has(aid);
               return (

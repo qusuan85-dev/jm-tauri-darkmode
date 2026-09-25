@@ -34,6 +34,7 @@ import {
   toNavigationId,
 } from "../reading/navigation";
 import type { ReadingTarget } from "../reading/navigation";
+import { createDetailAdapter } from "../sources/detailAdapter";
 import Loading from "../components/Loading";
 import CoverImage from "../components/CoverImage";
 
@@ -54,26 +55,6 @@ type Album = {
     sort?: string | number;
     name?: string;
   }>;
-};
-
-type ComicExtraEntry = {
-  id: string;
-  pageCount: number;
-  updatedAt: number;
-};
-
-type OfflineChapterMeta = {
-  chapter?: unknown | null;
-  scrambleId?: number | null;
-  segmentNums?: number[];
-  updatedAt?: number;
-};
-
-type OfflineCacheMeta = {
-  aid: string;
-  album?: unknown | null;
-  chapters?: Record<string, OfflineChapterMeta>;
-  updatedAt?: number;
 };
 
 type CommentExpInfo = {
@@ -237,30 +218,6 @@ function renderCommentContent(raw: unknown): ReactNode {
   }
 }
 
-function albumCoverUrl(aid: string) {
-  return `${getImgBase()}/media/albums/${aid}_3x4.jpg`;
-}
-
-function normalizeImgUrl(p: string, chapterId: string) {
-  if (!p) return "";
-  if (p.startsWith("http://") || p.startsWith("https://")) return p;
-  const base = getImgBase();
-  if (p.startsWith("/")) return `${base}${p}`;
-  return `${base}/media/photos/${chapterId}/${p}`;
-}
-
-function numKey(s: string): number | null {
-  const m = s.match(/\d+/);
-  if (!m) return null;
-  const n = Number(m[0]);
-  return Number.isFinite(n) ? n : null;
-}
-
-function pictureNameFromPath(p: string): string {
-  const base = p.split("/").pop() ?? p;
-  return base.split(".")[0] ?? "";
-}
-
 export default function ComicDetailPage(props: {
   session: Session;
   aid: string;
@@ -269,6 +226,13 @@ export default function ComicDetailPage(props: {
   onOpenSearch: (query: string) => void;
   onOpenReader: (target: ReadingTarget, startPage?: number) => void;
 }) {
+  // The adapter normalises the album into the shape the rest of this screen
+  // already understands, so only the genuinely different operations (comments,
+  // favourite, cache-all, …) go through it.
+  const adapter = useMemo(
+    () => createDetailAdapter({ cookies: props.session.cookies }),
+    [props.session.cookies],
+  );
   const [toggleBusy, setToggleBusy] = useState(false);
   const [favSheetOpen, setFavSheetOpen] = useState(false);
   const [favFolders, setFavFolders] = useState<Array<{ id: string; name: string }>>([]);
@@ -278,7 +242,7 @@ export default function ComicDetailPage(props: {
   const [newFavFolderName, setNewFavFolderName] = useState("");
   const [favCreating, setFavCreating] = useState(false);
   const [usingOfflineAlbum, setUsingOfflineAlbum] = useState(false);
-  const [progress, setProgress] = useState<ReadProgress | null>(() => getReadProgress(props.aid));
+  const [progress, setProgress] = useState<ReadProgress | null>(() => getReadProgress("jm", props.aid));
   const [comicPageCount, setComicPageCount] = useState<number | null>(null);
   const [comicPageLoading, setComicPageLoading] = useState(false);
   const [cacheDownloading, setCacheDownloading] = useState(false);
@@ -317,30 +281,10 @@ export default function ComicDetailPage(props: {
     mutate,
   } = useSWR(
     ["album", props.aid, props.session.cookies],
-    async ([, aid, cookies]) => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const cacheAid = String(aid);
-      try {
-        const raw = await invoke<unknown>("api_album", { id: aid, cookies });
-        setUsingOfflineAlbum(false);
-        const work = createReadingWork(raw as Album, cacheAid);
-        void invoke("api_read_offline_cache_upsert_album", {
-          aid: work.workId || cacheAid,
-          album: raw,
-        }).catch(() => {
-          // ignore offline metadata write failures
-        });
-        return raw;
-      } catch (e) {
-        const cached = await invoke<OfflineCacheMeta | null>("api_read_offline_cache_get", {
-          aid: cacheAid,
-        }).catch(() => null);
-        if (cached?.album) {
-          setUsingOfflineAlbum(true);
-          return cached.album;
-        }
-        throw e;
-      }
+    async () => {
+      const result = await adapter.loadAlbum({ aid: props.aid });
+      setUsingOfflineAlbum(result.fromCache);
+      return result.album;
     },
     {
       revalidateOnFocus: false,
@@ -352,12 +296,30 @@ export default function ComicDetailPage(props: {
     },
   );
   const album = (albumData as Album) ?? null;
-  const readingWork = useMemo(() => createReadingWork(album, props.aid), [album, props.aid]);
+  const readingWork = useMemo(
+    () => createReadingWork(album, props.aid),
+    [album, props.aid],
+  );
   const rootAid = readingWork.workId || props.aid;
   const chapters = readingWork.chapters;
   const isSingle = Boolean(album) && readingWork.kind === "single";
 
-  const coverUrl = useMemo(() => albumCoverUrl(rootAid), [rootAid]);
+  // The adapter answers with a URL once the album is known.
+  const [coverUrl, setCoverUrl] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const url = await adapter.coverUrl({ aid: rootAid });
+        if (!cancelled) setCoverUrl(url);
+      } catch {
+        if (!cancelled) setCoverUrl("");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [adapter, rootAid]);
 
   const {
     data: commentData,
@@ -365,14 +327,32 @@ export default function ComicDetailPage(props: {
     isValidating: commentValidating,
     mutate: mutateComments,
   } = useSWR(
-    album && rootAid && !usingOfflineAlbum ? ["comments", rootAid, commentPage, props.session.cookies] : null,
-    async ([, aid, page, cookies]) => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      return invoke<any>("api_comments", {
+    album && rootAid && !usingOfflineAlbum && adapter.loadComments
+      ? ["comments", rootAid, commentPage, props.session.cookies]
+      : null,
+    async ([, , aid, page]) => {
+      const result = await adapter.loadComments!({
         aid: String(aid),
-        page: String(page),
-        cookies,
+        page: Number(page) || 1,
       });
+      return {
+        list: result.list.map((comment) => ({
+          CID: comment.id,
+          username: comment.userName,
+          photo: comment.avatar,
+          content: comment.content,
+          expinfo: { level_name: comment.levelText },
+          replys: comment.replies.map((reply) => ({
+            CID: reply.id,
+            username: reply.userName,
+            photo: reply.avatar,
+            content: reply.content,
+            expinfo: { level_name: reply.levelText },
+            replys: [],
+          })),
+        })),
+        total: result.total,
+      };
     },
     {
       keepPreviousData: true,
@@ -387,7 +367,7 @@ export default function ComicDetailPage(props: {
 
   useEffect(() => {
     setUsingOfflineAlbum(false);
-    setProgress(getReadProgress(props.aid));
+    setProgress(getReadProgress("jm", props.aid));
   }, [props.aid]);
 
   useEffect(() => {
@@ -457,20 +437,17 @@ export default function ComicDetailPage(props: {
   const commentLoading = commentValidating && !commentData;
   const commentList: CommentItem[] = Array.isArray(commentData?.list) ? commentData.list : [];
   const commentTotal = useMemo(() => {
-    const raw = commentData?.total ?? commentData?.count ?? commentData?.total_num;
+    const raw = commentData?.total;
     if (raw == null) return null;
     const num = Number(raw);
     return Number.isFinite(num) ? num : null;
   }, [commentData]);
   const commentMaxPage = useMemo(() => {
-    const raw = commentData?.page_count ?? commentData?.pageCount ?? commentData?.pages;
-    const num = Number(raw);
-    if (Number.isFinite(num) && num > 0) return num;
     const total = commentTotal;
     const pageSize = commentPageSize || commentList.length;
     if (total != null && pageSize > 0) return Math.max(1, Math.ceil(total / pageSize));
     return null;
-  }, [commentData, commentList.length, commentPageSize, commentTotal]);
+  }, [commentList.length, commentPageSize, commentTotal]);
   const commentHasNext = useMemo(() => {
     if (commentMaxPage != null) return commentPage < commentMaxPage;
     return commentList.length > 0;
@@ -485,7 +462,7 @@ export default function ComicDetailPage(props: {
   useEffect(() => {
     if (!album || !rootAid) return;
     try {
-      const result = coalesceReadProgress(rootAid, readingWork.aliases, {
+      const result = coalesceReadProgress("jm", rootAid, readingWork.aliases, {
         title: album.name,
         coverUrl,
       });
@@ -510,28 +487,16 @@ export default function ComicDetailPage(props: {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      if (!isSingle || !rootAid || !singleChapterId) {
+      if (!isSingle || !rootAid || !singleChapterId || !adapter.pageCount) {
         setComicPageCount(null);
         setComicPageLoading(false);
         return;
       }
       setComicPageLoading(true);
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const cached = await invoke<ComicExtraEntry | null>("api_comic_extra_get", { id: rootAid });
+        const count = await adapter.pageCount({ aid: rootAid });
         if (cancelled) return;
-        if (cached && typeof cached.pageCount === "number") {
-          setComicPageCount(cached.pageCount);
-          setComicPageLoading(false);
-          return;
-        }
-        const count = await invoke<number>("api_comic_page_count", {
-          id: rootAid,
-          chapter_id: singleChapterId,
-          cookies: props.session.cookies,
-        });
-        if (cancelled) return;
-        setComicPageCount(Number.isFinite(count) ? count : 0);
+        setComicPageCount(count == null ? null : Number.isFinite(count) ? count : 0);
       } catch {
         if (!cancelled) setComicPageCount(null);
       } finally {
@@ -542,7 +507,7 @@ export default function ComicDetailPage(props: {
     return () => {
       cancelled = true;
     };
-  }, [isSingle, props.session.cookies, rootAid, singleChapterId]);
+  }, [adapter, isSingle, rootAid, singleChapterId]);
 
   const openChapter = useCallback(
     (chapter: (typeof chapters)[number], startPage = 1) => {
@@ -607,7 +572,7 @@ export default function ComicDetailPage(props: {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         if (!wasFavorite) {
-          await invoke("api_favorite_toggle", { aid: rootAid, cookies: props.session.cookies });
+          await adapter.toggleFavorite({ aid: rootAid });
         }
         if (folderId !== "0") {
           await invoke("api_favorite_folder_move", {
@@ -640,11 +605,13 @@ export default function ComicDetailPage(props: {
     if (!album) return;
     setToggleBusy(true);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("api_favorite_toggle", { aid: rootAid, cookies: props.session.cookies });
+      await adapter.toggleFavorite({ aid: rootAid });
       await mutate();
       setFavSheetOpen(false);
-      showToast({ ok: true, text: "已取消收藏" });
+      showToast({
+        ok: true,
+        text: adapter.capabilities.favoriteFolders ? "已取消收藏" : "已添加到收藏",
+      });
     } catch (e) {
       if (isAuthExpiredError(e)) {
         props.onAuthExpired();
@@ -684,71 +651,18 @@ export default function ComicDetailPage(props: {
     setCacheDownloading(true);
     setCacheProgress({ done: 0, total: 0, failed: 0 });
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const cacheAid = rootAid;
-      void invoke("api_cover_cache", { url: coverUrl }).catch(() => {
-        // best-effort cover cache for offline detail display
+      // Downloading is the adapter's job: it decrypts each page while storing it.
+      const result = await adapter.cacheAll({
+        aid: rootAid,
+        series: chapters,
+        onProgress: (next) => setCacheProgress(next),
       });
-      await invoke("api_read_offline_cache_upsert_album", {
-        aid: cacheAid,
-        album,
-      });
-      let done = 0;
-      let failed = 0;
-      let total = 0;
-      const cacheJobs: Array<{ chapterId: string; images: string[]; nums: number[] }> = [];
-      for (const chapter of chapters) {
-        const chapterId = toId(chapter.id) || rootAid;
-        if (!chapterId) continue;
-        const [raw, scramble] = await Promise.all([
-          invoke<any>("api_chapter", { id: chapterId, cookies: props.session.cookies }),
-          invoke<number>("api_chapter_scramble_id", { id: chapterId }).catch(() => 220980),
-        ]);
-        const imagePaths = Array.isArray(raw?.images) ? raw.images.filter((x: unknown): x is string => typeof x === "string") : [];
-        const sorted = [...imagePaths].sort((a, b) => {
-          const na = numKey(a);
-          const nb = numKey(b);
-          if (na == null && nb == null) return a.localeCompare(b);
-          if (na == null) return 1;
-          if (nb == null) return -1;
-          return na - nb;
-        });
-        const nums = await invoke<number[]>("api_segmentation_nums", {
-          epsId: chapterId,
-          scrambleId: scramble,
-          pictureNames: sorted.map(pictureNameFromPath),
-        });
-        await invoke("api_read_offline_cache_upsert_chapter", {
-          aid: cacheAid,
-          chapterId,
-          chapter: raw,
-          scrambleId: scramble,
-          segmentNums: nums,
-        });
-        total += sorted.length;
-        cacheJobs.push({ chapterId, images: sorted, nums });
-      }
-      setCacheProgress({ done, total, failed });
-      for (const job of cacheJobs) {
-        for (let i = 0; i < job.images.length; i += 1) {
-          try {
-            await invoke<string>("api_image_descramble_file", {
-              url: normalizeImgUrl(job.images[i], job.chapterId),
-              num: job.nums[i] ?? 0,
-              aid: cacheAid,
-              readKey: undefined,
-            });
-          } catch {
-            failed += 1;
-          } finally {
-            done += 1;
-            setCacheProgress({ done, total, failed });
-          }
-        }
-      }
-      await invoke("api_read_cache_refresh");
+      await adapter.refreshCacheIndex();
       void refreshCachedAlbums();
-      showToast({ ok: failed === 0, text: failed === 0 ? "缓存下载完成" : `缓存完成，失败 ${failed} 张` });
+      showToast({
+        ok: result.failed === 0,
+        text: result.failed === 0 ? "缓存下载完成" : `缓存完成，失败 ${result.failed} 张`,
+      });
     } catch (e) {
       if (isAuthExpiredError(e)) {
         props.onAuthExpired();
@@ -847,7 +761,6 @@ export default function ComicDetailPage(props: {
     setExportError("");
     setExportProgress({ done: 0, total: 0, failed: 0, chapter: "", message: "正在准备章节…" });
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
       const useCustom = exportMode === "custom" && Boolean(exportCustomLabel);
       // A SAF folder can only be written through Android's document API, so the
       // Rust side stages the files and we stream them across afterwards.
@@ -857,13 +770,11 @@ export default function ComicDetailPage(props: {
         title: chapter.name ?? `第${index + 1}话`,
       }));
 
-      const result = await invoke<any>("api_export_album", {
-        albumName: album.name ?? `AID ${rootAid}`,
+      if (!adapter.exportAlbum) throw new Error("该来源暂不支持导出");
+      const result = await adapter.exportAlbum({
+        aid: rootAid,
+        albumName: album.name ?? `${adapter.idLabel} ${rootAid}`,
         chapters: chapterInputs,
-        cookies: props.session.cookies,
-        // Chapter responses carry bare file names; the backend prefixes this
-        // base (same value the reader and the offline cache use).
-        imgBase: getImgBase(),
         dest,
         wantImages: exportImages,
         wantPdfChapter: exportPdfChapter,
@@ -926,6 +837,7 @@ export default function ComicDetailPage(props: {
       setExportBusy(false);
     }
   }, [
+    adapter,
     album,
     chapters,
     exportCustomLabel,
@@ -949,13 +861,12 @@ export default function ComicDetailPage(props: {
     setCommentBusy(true);
     setCommentActionError("");
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
       const replyId = commentReplyTo ? commentId(commentReplyTo) : "";
-      await invoke("api_comment_send", {
+      if (!adapter.sendComment) throw new Error("该来源暂不支持发表评论");
+      await adapter.sendComment({
         aid: rootAid,
-        comment: text,
-        commentId: replyId || undefined,
-        cookies: props.session.cookies,
+        content: text,
+        replyToId: replyId || undefined,
       });
       setCommentInput("");
       setCommentReplyTo(null);
@@ -1035,23 +946,34 @@ export default function ComicDetailPage(props: {
                   : "一键缓存"}
               </span>
             </Button>
+            {adapter.capabilities.exportAlbum ? (
+              <Button
+                className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                disabled={!album || exportBusy}
+                loading={exportBusy}
+                onClick={() => setExportOpen((v) => !v)}
+              >
+                <span className="inline-flex items-center gap-1">
+                  {!exportBusy ? <FolderDown className="h-4 w-4" /> : null}
+                  导出
+                </span>
+              </Button>
+            ) : null}
             <Button
               className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-              disabled={!album || exportBusy}
-              loading={exportBusy}
-              onClick={() => setExportOpen((v) => !v)}
+              disabled={!album || (toggleBusy && !adapter.capabilities.favoriteFolders)}
+              onClick={() => {
+                // Sources with folder-style collections open the sheet; the
+                // rest add straight to their single collection.
+                if (adapter.capabilities.favoriteFolders) setFavSheetOpen((v) => !v);
+                else void toggleFavorite();
+              }}
             >
-              <span className="inline-flex items-center gap-1">
-                {!exportBusy ? <FolderDown className="h-4 w-4" /> : null}
-                导出
-              </span>
-            </Button>
-            <Button
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-              disabled={!album}
-              onClick={() => setFavSheetOpen((v) => !v)}
-            >
-              {album?.is_favorite ? "已收藏 · 移动" : "收藏"}
+              {adapter.capabilities.favoriteFolders
+                ? album?.is_favorite
+                  ? "已收藏 · 移动"
+                  : "收藏"
+                : "收藏"}
             </Button>
           </div>
         </div>
@@ -1062,7 +984,7 @@ export default function ComicDetailPage(props: {
           </div>
         ) : null}
 
-        {favSheetOpen ? (
+        {favSheetOpen && adapter.capabilities.favoriteFolders ? (
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="text-sm font-medium text-zinc-900">
@@ -1163,7 +1085,7 @@ export default function ComicDetailPage(props: {
           </div>
         ) : null}
 
-        {exportOpen ? (
+        {exportOpen && adapter.capabilities.exportAlbum ? (
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="text-sm font-medium text-zinc-900">导出到目录</div>

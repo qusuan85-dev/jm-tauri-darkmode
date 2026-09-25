@@ -78,6 +78,10 @@ type MockOptions = {
   searchPageSize?: number;
   /** Directory reported by `api_export_default_dir`. */
   exportDefaultDir?: string;
+  /** login 命令是否失败（用于测「自动登录也失败才回登录页」）。 */
+  loginShouldFail?: boolean;
+  /** 是否预置一份有效登录态（默认 true；false 用来模拟「登录态丢失」）。 */
+  hasSession?: boolean;
 };
 
 export async function installTauriMock(page: Page, options: MockOptions = {}) {
@@ -91,6 +95,10 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
     const albumSeries = Array.isArray(payload.albumSeries) ? payload.albumSeries : [];
     const chapterImages = payload.chapterImages ?? {};
     const readProgress = payload.readProgress ?? {};
+    const readProgressWithSource: Record<string, { source: "jm"; updatedAt: number; chapterId?: string; pageIndex?: number }> = {};
+    for (const [aid, entry] of Object.entries(readProgress)) {
+      readProgressWithSource[`jm:${aid}`] = { ...(entry as any), source: "jm" };
+    }
     const appVersion =
       typeof payload.appVersion === "string" && payload.appVersion.trim()
         ? payload.appVersion.trim()
@@ -103,6 +111,8 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
       typeof payload.updateDownloadPath === "string" && payload.updateDownloadPath.trim()
         ? payload.updateDownloadPath.trim()
         : "/tmp/mock-update.bin";
+
+    const loginShouldFail = payload.loginShouldFail === true;
 
     const defaultSession = {
       user: {
@@ -122,10 +132,12 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
     const fallbackCoverDataUrl =
       "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
-    localStorage.setItem("jm_session_v1", JSON.stringify(defaultSession));
+    if (payload.hasSession !== false) {
+      localStorage.setItem("jm_session_v1", JSON.stringify(defaultSession));
+    }
     localStorage.setItem("jm_auto_login", "0");
     localStorage.setItem("jm_save_password", "0");
-    localStorage.setItem("jm_read_progress_v1", JSON.stringify(readProgress));
+    localStorage.setItem("jm_read_progress_v2", JSON.stringify(readProgressWithSource));
     localStorage.setItem("jm_continuous_reading", payload.continuousReading ? "1" : "0");
 
     let callbackId = 1;
@@ -215,6 +227,22 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
     const invoke = async (cmd: string, args?: Record<string, unknown>) => {
       (window as any).__mockInvokeCalls.push({ cmd, args: args ?? {} });
       switch (cmd) {
+        case "login": {
+          if (loginShouldFail) throw new Error("login failed (mock)");
+          const username = String(args?.username ?? "e2e-user");
+          return {
+            user: {
+              uid: "10001",
+              username,
+              level_name: "LV1",
+              level: 1,
+              coin: 100,
+              favorites: 0,
+              can_favorites: 0,
+            },
+            cookies: { AVS: "e2e-relogin" },
+          };
+        }
         case "api_latest": {
           if (latestDelayMs) await sleep(latestDelayMs);
           return {

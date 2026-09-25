@@ -278,7 +278,7 @@ export default function CachedPage(props: {
   const openReader = async (row: CachedRow) => {
     setOpenReaderLoading((prev) => ({ ...prev, [row.aid]: true }));
     try {
-      const progress = getReadProgress(row.aid);
+      const progress = getReadProgress("jm", row.aid);
       const chapters = row.chapters.length ? row.chapters : [{ id: row.aid, sort: 1, name: "" }];
       const target =
         progress?.chapterId != null

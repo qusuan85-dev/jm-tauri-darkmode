@@ -9,7 +9,7 @@ import {
   useParams,
 } from "react-router-dom";
 
-import type { Session } from "./auth/session";
+import type { LoginResult, Session } from "./auth/session";
 import { clearSession, loadSession, saveSession } from "./auth/session";
 import ComicDetailPage from "./pages/ComicDetailPage";
 import ReadingPage from "./pages/ReadingPage";
@@ -28,7 +28,7 @@ import {
   createReadingWorkFromChapters,
   normalizeReadingWork,
 } from "./reading/navigation";
-import type { ChapterNavItem, ReadingTarget, ReadingWork } from "./reading/navigation";
+import type { ChapterNavItem, ReadingSource, ReadingTarget, ReadingWork } from "./reading/navigation";
 
 type HomeSub =
   | "home"
@@ -52,6 +52,7 @@ type ReadingState = {
     fromPath?: string;
     historyBack?: boolean;
   };
+  source?: ReadingSource;
 };
 
 function buildReadingPath(aid: string, chapterId: string, chapterTitle?: string) {
@@ -121,6 +122,9 @@ function homeTitle(sub: HomeSub) {
       return "首页";
   }
 }
+
+// 静默补登的上限：避免接口持续报失效时无限重登刷屏
+const MAX_SILENT_LOGIN = 3;
 
 function RequireSession(props: { session: Session | null; children: React.ReactElement }) {
   const location = useLocation();
@@ -266,7 +270,7 @@ function FavoritesRoute(props: { session: Session; onAuthExpired: () => void }) 
     (aid: string, chapterId: string, chapterTitle: string, chapters: ChapterNavItem[], startPage?: number) =>
       navigate(buildReadingPath(aid, chapterId, chapterTitle), {
         state: {
-          work: createReadingWorkFromChapters(aid, chapters),
+          work: createReadingWorkFromChapters(aid, chapters, "jm"),
           chapterTitle,
           chapters,
           startPage,
@@ -300,7 +304,7 @@ function CachedRoute(props: { session: Session }) {
     (aid: string, chapterId: string, chapterTitle: string, chapters: ChapterNavItem[], startPage?: number) =>
       navigate(buildReadingPath(aid, chapterId, chapterTitle), {
         state: {
-          work: createReadingWorkFromChapters(aid, chapters),
+          work: createReadingWorkFromChapters(aid, chapters, "jm"),
           chapterTitle,
           chapters,
           startPage,
@@ -353,7 +357,7 @@ function HistoryRoute(props: { session: Session; onAuthExpired: () => void }) {
     (aid: string, chapterId: string, chapterTitle: string, chapters: ChapterNavItem[], startPage?: number) =>
       navigate(buildReadingPath(aid, chapterId, chapterTitle), {
         state: {
-          work: createReadingWorkFromChapters(aid, chapters),
+          work: createReadingWorkFromChapters(aid, chapters, "jm"),
           chapterTitle,
           chapters,
           startPage,
@@ -364,7 +368,6 @@ function HistoryRoute(props: { session: Session; onAuthExpired: () => void }) {
       }),
     [fromPath, navigate],
   );
-
   return (
     <HistoryPage
       session={props.session}
@@ -441,7 +444,8 @@ function ReadingRoute(props: { session: Session }) {
   if (!aid || !chapterId) return <Navigate to="/home/home" replace />;
 
   const fallbackChapters = Array.isArray(state.chapters) ? state.chapters : [];
-  const work = normalizeReadingWork(state.work, aid, fallbackChapters);
+  const source = state.source ?? "jm";
+  const work = normalizeReadingWork(state.work, aid, fallbackChapters, source);
   const workId = work.workId || aid;
   const chapters = work.chapters;
   const chapterTitle = state.chapterTitle ?? searchParams.get("ct") ?? "";
@@ -495,9 +499,11 @@ function AppRoutes() {
   const { showToast } = useToast();
   const autoSignRef = useRef<string | null>(null);
   const autoSignPendingRef = useRef(false);
-  const autoLoginAttemptedRef = useRef(false);
+  const startupLoginTriedRef = useRef(false);
+  const silentLoginCountRef = useRef(0);
 
   const onLoggedIn = useCallback((s: Session) => {
+    silentLoginCountRef.current = 0;
     setSession(s);
     autoSignPendingRef.current = true;
   }, []);
@@ -508,52 +514,60 @@ function AppRoutes() {
     setSession(null);
   }, []);
 
-  const onAuthExpired = useCallback(() => {
-    autoLoginAttemptedRef.current = false;
-    clearSession();
-    clearBackendSession();
-    setSession(null);
-  }, []);
-
-  useEffect(() => {
-    if (session) return;
-    if (autoLoginAttemptedRef.current) return;
-    autoLoginAttemptedRef.current = true;
-
-    let autoLoginEnabled = false;
+  // 用已保存的账密静默补登。返回 true 表示已经发起请求（调用方不要再踢回登录页）。
+  const silentReLogin = useCallback((): boolean => {
     let username = "";
     let password = "";
-    let savePassword = false;
     try {
-      autoLoginEnabled = localStorage.getItem("jm_auto_login") === "1";
-      savePassword = localStorage.getItem("jm_save_password") === "1";
+      if (localStorage.getItem("jm_save_password") !== "1") return false;
+      if (localStorage.getItem("jm_auto_login") !== "1") return false;
       username = localStorage.getItem("jm_login_username") ?? "";
       const raw = localStorage.getItem("jm_login_password_b64") ?? "";
       if (raw) password = decodeUtf8Base64(raw);
     } catch {
-      autoLoginEnabled = false;
+      return false;
     }
-    if (!autoLoginEnabled || !savePassword || !username.trim() || !password) return;
+    if (!username.trim() || !password) return false;
+    if (silentLoginCountRef.current >= MAX_SILENT_LOGIN) return false;
+    silentLoginCountRef.current += 1;
 
     void (async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const result = await invoke<Session>("login", { username, password });
+        const result = await invoke<LoginResult>("login", { username, password });
         const nextSession: Session = { ...result, savedAt: Date.now() };
+        silentLoginCountRef.current = 0;
         saveSession(nextSession);
         setSession(nextSession);
-        showToast({ ok: true, text: `自动登录成功：${nextSession.user.username}` });
+        showToast({ ok: true, text: "登录态已自动刷新" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         showToast({ ok: false, text: `自动登录失败：${msg}` });
-        try {
-          localStorage.setItem("jm_auto_login", "0");
-        } catch {
-          // ignore
-        }
+        // 补登也失败才真正退回登录页；不再把「自动登录」关掉，
+        // 否则下次启动就再也不会自动登录了。
+        clearSession();
+        clearBackendSession();
+        setSession(null);
       }
     })();
-  }, [session, showToast]);
+    return true;
+  }, [showToast]);
+
+  const onAuthExpired = useCallback(() => {
+    // 登录态失效时先用已保存的账密补登，成功就留在当前页面；
+    // 只有没有可用凭据（或补登失败）时才清空并回登录页。
+    if (silentReLogin()) return;
+    clearSession();
+    clearBackendSession();
+    setSession(null);
+  }, [silentReLogin]);
+
+  useEffect(() => {
+    if (session) return;
+    if (startupLoginTriedRef.current) return;
+    startupLoginTriedRef.current = true;
+    silentReLogin();
+  }, [session, silentReLogin]);
 
   useEffect(() => {
     if (!session) return;
