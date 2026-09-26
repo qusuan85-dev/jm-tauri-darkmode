@@ -10,7 +10,7 @@ import {
 } from "react-router-dom";
 
 import type { LoginResult, Session } from "./auth/session";
-import { clearSession, loadSession, saveSession } from "./auth/session";
+import { clearSession, isAccountSession, loadSession, saveSession } from "./auth/session";
 import ComicDetailPage from "./pages/ComicDetailPage";
 import ReadingPage from "./pages/ReadingPage";
 import LoginPage from "./pages/LoginPage";
@@ -167,6 +167,7 @@ function HomeLayout(props: {
   session: Session;
   onLogout: () => void;
   onAuthExpired: () => void;
+  ensureLogin: () => Promise<boolean>;
 }) {
   const location = useLocation();
   const activeSub = normalizeHomeSub(location.pathname.split("/")[2]);
@@ -214,7 +215,11 @@ function HomeLayout(props: {
               <Route
                 path="daily"
                 element={
-                  <DailyPage session={props.session} onAuthExpired={props.onAuthExpired} />
+                  <DailyPage
+                    session={props.session}
+                    onAuthExpired={props.onAuthExpired}
+                    ensureLogin={props.ensureLogin}
+                  />
                 }
               />
               <Route
@@ -501,6 +506,7 @@ function AppRoutes() {
   const autoSignPendingRef = useRef(false);
   const startupLoginTriedRef = useRef(false);
   const silentLoginCountRef = useRef(0);
+  const silentLoginInFlightRef = useRef<Promise<boolean> | null>(null);
 
   const onLoggedIn = useCallback((s: Session) => {
     silentLoginCountRef.current = 0;
@@ -514,24 +520,36 @@ function AppRoutes() {
     setSession(null);
   }, []);
 
-  // 用已保存的账密静默补登。返回 true 表示已经发起请求（调用方不要再踢回登录页）。
-  const silentReLogin = useCallback((): boolean => {
+  /**
+   * 用已保存的账密静默补登。
+   *
+   * resolve(true) 表示最终拿到了可用会话；resolve(false) 表示没有可用凭据或补登失败
+   * （失败时会把会话清空，让路由回到登录页）。页面可以 await 它再决定下一步，
+   * 而不必只靠「会话被顶掉」这条间接路径。
+   *
+   * 并发去重：已经有一次补登在飞就复用同一次请求。否则 StrictMode 的 effect
+   * 双调用、或多个页面同时撞上登录失效，会发出重复的 login。
+   */
+  const silentReLogin = useCallback((): Promise<boolean> => {
+    const inflight = silentLoginInFlightRef.current;
+    if (inflight) return inflight;
+
     let username = "";
     let password = "";
     try {
-      if (localStorage.getItem("jm_save_password") !== "1") return false;
-      if (localStorage.getItem("jm_auto_login") !== "1") return false;
+      if (localStorage.getItem("jm_save_password") !== "1") return Promise.resolve(false);
+      if (localStorage.getItem("jm_auto_login") !== "1") return Promise.resolve(false);
       username = localStorage.getItem("jm_login_username") ?? "";
       const raw = localStorage.getItem("jm_login_password_b64") ?? "";
       if (raw) password = decodeUtf8Base64(raw);
     } catch {
-      return false;
+      return Promise.resolve(false);
     }
-    if (!username.trim() || !password) return false;
-    if (silentLoginCountRef.current >= MAX_SILENT_LOGIN) return false;
+    if (!username.trim() || !password) return Promise.resolve(false);
+    if (silentLoginCountRef.current >= MAX_SILENT_LOGIN) return Promise.resolve(false);
     silentLoginCountRef.current += 1;
 
-    void (async () => {
+    const pending = (async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         const result = await invoke<LoginResult>("login", { username, password });
@@ -540,6 +558,7 @@ function AppRoutes() {
         saveSession(nextSession);
         setSession(nextSession);
         showToast({ ok: true, text: "登录态已自动刷新" });
+        return true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         showToast({ ok: false, text: `自动登录失败：${msg}` });
@@ -548,25 +567,37 @@ function AppRoutes() {
         clearSession();
         clearBackendSession();
         setSession(null);
+        return false;
+      } finally {
+        silentLoginInFlightRef.current = null;
       }
     })();
-    return true;
+
+    silentLoginInFlightRef.current = pending;
+    return pending;
   }, [showToast]);
+
+  /**
+   * 确保当前是「能拉数据」的会话：已经有就直接返回 true，否则尝试静默补登。
+   * 供需要真实账号的页面（如签到）在进入时调用。
+   */
+  const ensureLogin = useCallback((): Promise<boolean> => {
+    // 只有「真实账号」会话才算已登录；游客会话同样要触发补登
+    if (isAccountSession(session)) return Promise.resolve(true);
+    return silentReLogin();
+  }, [session, silentReLogin]);
 
   const onAuthExpired = useCallback(() => {
     // 登录态失效时先用已保存的账密补登，成功就留在当前页面；
     // 只有没有可用凭据（或补登失败）时才清空并回登录页。
-    if (silentReLogin()) return;
-    clearSession();
-    clearBackendSession();
-    setSession(null);
+    void silentReLogin();
   }, [silentReLogin]);
 
   useEffect(() => {
     if (session) return;
     if (startupLoginTriedRef.current) return;
     startupLoginTriedRef.current = true;
-    silentReLogin();
+    void silentReLogin();
   }, [session, silentReLogin]);
 
   useEffect(() => {
@@ -582,8 +613,10 @@ function AppRoutes() {
       return;
     }
 
-    const uid = String(session.user?.uid ?? "").trim();
-    if (!uid || autoSignRef.current === uid || !autoSignPendingRef.current) return;
+    // 游客/无效会话打不了卡，等真实登录后再由 ensureLogin 触发
+    if (!isAccountSession(session)) return;
+    const uid = String(session.user.uid ?? "").trim();
+    if (autoSignRef.current === uid || !autoSignPendingRef.current) return;
     autoSignRef.current = uid;
     autoSignPendingRef.current = false;
 
@@ -622,8 +655,16 @@ function AppRoutes() {
   }, [session, showToast]);
 
   const homeLayout = useMemo(
-    () => (session ? <HomeLayout session={session} onLogout={onLogout} onAuthExpired={onAuthExpired} /> : null),
-    [onAuthExpired, onLogout, session],
+    () =>
+      session ? (
+        <HomeLayout
+          session={session}
+          onLogout={onLogout}
+          onAuthExpired={onAuthExpired}
+          ensureLogin={ensureLogin}
+        />
+      ) : null,
+    [ensureLogin, onAuthExpired, onLogout, session],
   );
 
   return (

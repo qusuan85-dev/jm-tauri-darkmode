@@ -32,6 +32,20 @@ export function isUsableSession(value: unknown): value is Session {
   return true;
 }
 
+/**
+ * 是否是「真实账号」会话。
+ *
+ * 「跳过登录」存进来的游客会话虽然结构完整，但没有 uid、也没有 cookie，
+ * 任何需要登录态的接口（收藏、签到…）都拿不到数据。需要登录态的地方
+ * 应该用这个判断，而不是只看 session 是否非空。
+ */
+export function isAccountSession(value: unknown): value is Session {
+  if (!isUsableSession(value)) return false;
+  const uid = String(value.user.uid ?? "").trim();
+  if (!uid || uid === "guest") return false;
+  return Object.keys(value.cookies).length > 0;
+}
+
 export function loadSession(): Session | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);

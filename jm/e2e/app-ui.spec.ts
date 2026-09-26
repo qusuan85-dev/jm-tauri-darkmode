@@ -683,6 +683,90 @@ test("收藏夹批量整理：可跨页全选整个收藏夹", async ({ page }) 
 });
 
 
+test("游客态进入签到页会自动登录，登录成功后能拉到签到信息", async ({ page }) => {
+  // 预置「跳过登录」的游客会话 + 已保存账密，模拟真实用户重启 App 后的状态
+  await installTauriMock(page, {
+    guestSession: true,
+    latestItems: [{ id: "50020", name: "Daily After Login", author: "A" }],
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem("jm_save_password", "1");
+    localStorage.setItem("jm_auto_login", "1");
+    localStorage.setItem("jm_login_username", "e2e-user");
+    localStorage.setItem("jm_login_password_b64", btoa("e2e-pass"));
+  });
+
+  await page.goto("/#/home/daily");
+
+  // 应自动登录，然后页面自己拉到签到数据（而不是停在「正在自动登录」）
+  await expect(page.getByText("9月-签到活动")).toBeVisible();
+  await expect(page.locator('[data-daily-status="unsigned"]')).toContainText("今天还没签到");
+  await expect(page.locator('[data-daily-status="unsigned"]')).not.toContainText("正在自动登录");
+
+  // 登录用的是已保存的账密，且登录后会话被写回
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls
+          .filter((x) => x.cmd === "login")
+          .map((x) => ({ username: x.args?.username, password: x.args?.password }));
+      }),
+    )
+    .toEqual([{ username: "e2e-user", password: "e2e-pass" }]);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = localStorage.getItem("jm_session_v1");
+        if (!raw) return null;
+        return JSON.parse(raw).user.uid as string;
+      }),
+    )
+    .toBe("10001");
+
+  // 更新后的会话确实被用于拉签到数据（user_id 不再是 guest）
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        const uids = calls.filter((x) => x.cmd === "api_daily").map((x) => String(x.args?.userId));
+        return uids.length > 0 && uids.every((u) => u !== "guest" && u !== "");
+      }),
+    )
+    .toBe(true);
+
+  // 登录后立刻可以签到
+  await page.getByRole("button", { name: "立即签到", exact: true }).click();
+  await expect(page.locator('[data-daily-reward="coin"]')).toHaveText(/\+40 金币/);
+});
+
+test("没有保存凭据时进入签到页不会乱打接口，只提示需要登录", async ({ page }) => {
+  await installTauriMock(page, { guestSession: true });
+
+  await page.goto("/#/home/daily");
+
+  await expect(page.locator('[data-daily-status]')).toContainText("需要登录后才能签到");
+  // 没有凭据就不该发起 login，也不该用 guest 的 uid 去打签到接口
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls.filter((x) => x.cmd === "login").length;
+      }),
+    )
+    .toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string }>;
+        return calls.filter((x) => x.cmd === "api_daily").length;
+      }),
+    )
+    .toBe(0);
+  // 签到按钮在此期间应不可点
+  await expect(page.getByRole("button", { name: "立即签到", exact: true })).toBeDisabled();
+});
+
 test("登录态丢失时用已保存的账密自动补登，不再要求手动点登录", async ({ page }) => {
   await installTauriMock(page, {
     hasSession: false,

@@ -82,6 +82,8 @@ type MockOptions = {
   loginShouldFail?: boolean;
   /** 是否预置一份有效登录态（默认 true；false 用来模拟「登录态丢失」）。 */
   hasSession?: boolean;
+  /** 预置「游客态」会话（uid=guest、无 cookie），用来测「进页面才自动登录」。 */
+  guestSession?: boolean;
 };
 
 export async function installTauriMock(page: Page, options: MockOptions = {}) {
@@ -133,7 +135,28 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
       "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
     if (payload.hasSession !== false) {
-      localStorage.setItem("jm_session_v1", JSON.stringify(defaultSession));
+      // guestSession 预置「跳过登录」那种会话：没有 uid、没有 cookie，
+      // 任何需要真实账号的页面（签到）都应先尝试自动登录。
+      localStorage.setItem(
+        "jm_session_v1",
+        JSON.stringify(
+          payload.guestSession
+            ? {
+                user: {
+                  uid: "guest",
+                  username: "游客",
+                  level_name: "",
+                  level: 0,
+                  coin: 0,
+                  favorites: 0,
+                  can_favorites: 0,
+                },
+                cookies: {},
+                savedAt: Date.now(),
+              }
+            : defaultSession,
+        ),
+      );
     }
     localStorage.setItem("jm_auto_login", "0");
     localStorage.setItem("jm_save_password", "0");

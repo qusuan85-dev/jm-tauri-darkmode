@@ -9,11 +9,12 @@
  *                            record（按周分组的日历，每天 {date, signed, bonus}）
  *   POST /daily_chk       →  { msg: "Jcoin:40 EXP:40" }   ← 奖励就在这句话里
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { CalendarCheck, Coins, Loader2, RefreshCw, Sparkles } from "lucide-react";
 
 import type { Session } from "../auth/session";
+import { isAccountSession } from "../auth/session";
 import { isAuthExpiredError } from "../auth/errors";
 import Button from "../components/Button";
 import Loading from "../components/Loading";
@@ -83,7 +84,12 @@ function readAutoSign(): boolean {
   }
 }
 
-export default function DailyPage(props: { session: Session; onAuthExpired: () => void }) {
+export default function DailyPage(props: {
+  session: Session;
+  onAuthExpired: () => void;
+  /** 确保拿到真实账号会话；无法自动登录时 resolve(false)。 */
+  ensureLogin?: () => Promise<boolean>;
+}) {
   const [signing, setSigning] = useState(false);
   const [reward, setReward] = useState<{ coin: string; exp: string; text: string; at: number } | null>(
     null,
@@ -93,6 +99,28 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
   const { showToast } = useToast();
 
   const userId = String(props.session.user?.uid ?? "").trim();
+  const canSignIn = isAccountSession(props.session);
+  // 回调用 ref 存一份，确保 effect 只依赖 canSignIn，不会因回调身份变化反复触发
+  const ensureLoginRef = useRef(props.ensureLogin);
+  ensureLoginRef.current = props.ensureLogin;
+
+  /**
+   * 进入页面时如果当前会话签不了到（游客态或 cookie 为空），先尝试自动登录；
+   * 成功后 session 会更新，下面的 SWR key 随之变化并重新拉取。
+   */
+  useEffect(() => {
+    if (canSignIn) return;
+    let cancelled = false;
+    setActionMessage("正在自动登录…");
+    void (async () => {
+      const ok = (await ensureLoginRef.current?.()) ?? false;
+      if (cancelled) return;
+      setActionMessage(ok ? "" : "需要登录后才能签到，请先登录账号。");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canSignIn]);
 
   const {
     data: daily,
@@ -100,7 +128,7 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
     isValidating,
     mutate,
   } = useSWR(
-    ["daily", userId, props.session.cookies],
+    canSignIn ? ["daily", userId, props.session.cookies] : null,
     async ([, uid, cookies]) => {
       const { invoke } = await import("@tauri-apps/api/core");
       return invoke<any>("api_daily", { userId: uid, cookies });
@@ -120,6 +148,8 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
 
   const signed = isSignedToday(info);
   const loading = isValidating && !daily;
+  // 会话还不能签到时页面处于「等登录」状态，用同一套 loading 外观展示
+  const awaitingLogin = !canSignIn;
 
   const errorText =
     dailyError && !isAuthExpiredError(dailyError)
@@ -137,6 +167,17 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
   }, [autoSign]);
 
   const checkIn = useCallback(async () => {
+    // 会话签不了到就先自动登录；登上了就让用户再点一次，
+    // 因为本次闭包里的 cookies / daily_id 还是旧的。
+    if (!canSignIn) {
+      setSigning(true);
+      setActionMessage("正在自动登录…");
+      const ok = (await ensureLoginRef.current?.()) ?? false;
+      setSigning(false);
+      setActionMessage(ok ? "" : "需要登录后才能签到，请先登录账号。");
+      if (ok) showToast({ ok: true, text: "已自动登录，请再次点击签到" });
+      return;
+    }
     if (!userId) {
       setActionMessage("未获取到用户 ID，请重新登录后再试。");
       return;
@@ -192,7 +233,7 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
     } finally {
       setSigning(false);
     }
-  }, [info?.daily_id, mutate, props, showToast, userId]);
+  }, [info?.daily_id, mutate, props, showToast, userId, canSignIn]);
 
   const weeks = useMemo(() => {
     const raw = Array.isArray(info?.record) ? info!.record : [];
@@ -212,13 +253,15 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
               {info?.event_name || "每日签到"}
             </div>
             <div className="mt-1 text-sm text-zinc-600" data-daily-status={signed ? "signed" : "unsigned"}>
-              {loading
-                ? "正在读取签到信息…"
-                : signed
-                  ? "今天已经签过到了，明天再来～"
-                  : "今天还没签到"}
-              {progressText(info) ? ` · 连续进度 ${progressText(info)}` : ""}
-              {toText(info?.oldStep) ? ` · 连续 ${toText(info?.oldStep)} 天` : ""}
+              {awaitingLogin
+                ? actionMessage || "正在自动登录…"
+                : loading
+                  ? "正在读取签到信息…"
+                  : signed
+                    ? "今天已经签过到了，明天再来～"
+                    : "今天还没签到"}
+              {!awaitingLogin && progressText(info) ? ` · 连续进度 ${progressText(info)}` : ""}
+              {!awaitingLogin && toText(info?.oldStep) ? ` · 连续 ${toText(info?.oldStep)} 天` : ""}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -226,7 +269,7 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
               type="button"
               className="inline-flex h-9 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
               onClick={() => void mutate()}
-              disabled={isValidating || signing}
+              disabled={awaitingLogin || isValidating || signing}
             >
               {isValidating ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -238,7 +281,7 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
             <Button
               className="h-9 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
               onClick={() => void checkIn()}
-              disabled={loading || signing}
+              disabled={awaitingLogin || loading || signing}
               loading={signing}
             >
               {signed ? "再签一次" : "立即签到"}
@@ -251,7 +294,8 @@ export default function DailyPage(props: { session: Session; onAuthExpired: () =
             {errorText}
           </div>
         ) : null}
-        {actionMessage ? (
+        {/* 等待登录时状态行已经在展示同一句提示，这里不再重复渲染 */}
+        {!awaitingLogin && actionMessage ? (
           <div
             data-daily-message
             className="mt-3 rounded-md border border-zinc-200 bg-white p-2 text-sm text-zinc-700"
