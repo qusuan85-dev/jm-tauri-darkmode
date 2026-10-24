@@ -61,7 +61,7 @@ function TextInput(props: ComponentPropsWithoutRef<"input">) {
     <input
       {...props}
       className={[
-        "h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900",
+        "h-10 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-zinc-900",
         "placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-200",
         props.className ?? "",
       ].join(" ")}
@@ -424,7 +424,7 @@ function RegisterTab() {
 
       <Field label="注册线路">
         <select
-          className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+          className="h-10 w-full rounded-pill border border-zinc-300 px-3.5 text-[13px] text-zinc-900"
           value={webBase}
           onChange={(e) => {
             const next = e.currentTarget.value;
@@ -594,7 +594,7 @@ function VerifyTab() {
         </p>
 
         <a
-          className="inline-flex h-10 items-center justify-start rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+          className="inline-flex h-10 items-center justify-start rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50"
           href="https://discord.com"
           target="_blank"
           rel="noreferrer"
@@ -791,7 +791,7 @@ function ProxyTab() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
               disabled={proxyLoading}
               onClick={() => {
                 void (async () => {
@@ -817,7 +817,7 @@ function ProxyTab() {
             </button>
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
               disabled={proxyLoading}
               onClick={() => {
                 void (async () => {
@@ -848,7 +848,7 @@ function ProxyTab() {
             </button>
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
               disabled={proxyLoading}
               onClick={() => setSocksProxy("")}
             >
@@ -901,7 +901,7 @@ function ProxyTab() {
           <div className="min-w-[90px] text-sm text-zinc-800">UA设置:</div>
           <button
             type="button"
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+            className="h-10 rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50"
             onClick={randomizeUa}
           >
             随机生成
@@ -1010,9 +1010,16 @@ export default function LoginPage(props: { onLoggedIn: (session: Session) => voi
 
   return (
     <div className="safe-area-top flex min-h-screen items-center justify-center bg-zinc-100 p-4 text-zinc-900 sm:p-6">
-      <div className="flex min-h-[360px] w-full min-w-0 max-w-[500px] flex-col rounded-lg border border-zinc-200 bg-white shadow-sm">
-        <div className="px-[6px] pt-[6px]">
-          <div className="flex border-b border-zinc-200">
+      <div className="flex min-h-[360px] w-full min-w-0 max-w-[500px] flex-col rounded-xl bg-white">
+        <div className="px-4 pt-6">
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+            JM COMIC READER
+          </div>
+          <h1 className="text-[34px] font-medium leading-none text-zinc-900">登录</h1>
+        </div>
+
+        <div className="px-4 pt-5">
+          <div className="flex h-9 items-stretch rounded-pill bg-zinc-50 p-[3px]">
             {tabs.map((tab) => {
               const isActive = tab.key === active;
               return (
@@ -1021,10 +1028,8 @@ export default function LoginPage(props: { onLoggedIn: (session: Session) => voi
                   type="button"
                   onClick={() => setActive(tab.key)}
                   className={[
-                    "relative -mb-px px-4 py-2 text-sm",
-                    isActive
-                      ? "border-b-2 border-zinc-900 font-medium text-zinc-900"
-                      : "text-zinc-600 hover:text-zinc-900",
+                    "flex flex-1 items-center justify-center rounded-pill px-3 text-[13px] transition-colors",
+                    isActive ? "bg-surface font-medium text-zinc-900" : "text-zinc-500",
                   ].join(" ")}
                 >
                   {tab.title}
@@ -1034,7 +1039,7 @@ export default function LoginPage(props: { onLoggedIn: (session: Session) => voi
           </div>
         </div>
 
-        <div className="flex-1 px-[9px] py-[9px]">{content}</div>
+        <div className="flex-1 px-4 py-4">{content}</div>
 
       </div>
     </div>

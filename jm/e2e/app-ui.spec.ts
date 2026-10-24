@@ -740,6 +740,54 @@ test("游客态进入签到页会自动登录，登录成功后能拉到签到�
   await expect(page.locator('[data-daily-reward="coin"]')).toHaveText(/\+40 金币/);
 });
 
+test("启动时自动登录，不需要先进入书架或签到页", async ({ page }) => {
+  // 游客会话会让「只看 session 是否存在」的启动逻辑误判为已登录
+  await installTauriMock(page, {
+    guestSession: true,
+    latestItems: [{ id: "50021", name: "Startup Auto Login", author: "A" }],
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem("jm_save_password", "1");
+    localStorage.setItem("jm_auto_login", "1");
+    localStorage.setItem("jm_login_username", "e2e-user");
+    localStorage.setItem("jm_login_password_b64", btoa("e2e-pass"));
+  });
+
+  await page.goto("/#/home/home");
+
+  await expect(page.getByText("Startup Auto Login", { exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return calls
+          .filter((x) => x.cmd === "login")
+          .map((x) => ({ username: x.args?.username, password: x.args?.password }));
+      }),
+    )
+    .toEqual([{ username: "e2e-user", password: "e2e-pass" }]);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = localStorage.getItem("jm_session_v1");
+        if (!raw) return null;
+        return JSON.parse(raw).user.uid as string;
+      }),
+    )
+    .toBe("10001");
+  // 首页请求也应使用刷新后的真实账号会话
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        const latestCalls = calls.filter((x) => x.cmd === "api_latest");
+        return latestCalls.length > 0 &&
+          latestCalls.every((x) => String(x.args?.cookies?.AVS ?? "") === "e2e-relogin");
+      }),
+    )
+    .toBe(true);
+});
+
 test("没有保存凭据时进入签到页不会乱打接口，只提示需要登录", async ({ page }) => {
   await installTauriMock(page, { guestSession: true });
 

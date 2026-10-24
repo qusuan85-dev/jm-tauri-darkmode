@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NavLink } from "react-router-dom";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
 import type { Session } from "../auth/session";
@@ -40,7 +41,9 @@ import {
 } from "../settings/theme";
 import { useToast } from "../components/Toast";
 import {
+  CalendarCheck,
   Check,
+  ChevronRight,
   HelpCircle,
   Loader2,
   Moon,
@@ -544,12 +547,48 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
   }, [appVersion, checkUpdate, isDevBuild]);
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
-        设置
+    <div className="flex flex-col gap-4">
+      <div>
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+          JM · 偏好设置
+        </div>
+        <h1 className="text-[26px] font-medium leading-none text-zinc-900">我的</h1>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      {/* Identity first — 我的 should say who you are before it says what you
+          can configure. */}
+      <div className="flex items-center gap-3.5 rounded-lg bg-white p-4">
+        <span className="h-12 w-12 flex-none rounded-pill bg-gradient-to-br from-accent to-accent-strong" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-medium text-zinc-900">
+            {props.session.user.username}
+          </span>
+          <span className="block truncate font-mono text-[10px] tracking-wide text-zinc-500">
+            UID {String(props.session.user.uid)}
+          </span>
+          {props.session.user.level != null ? (
+            <span className="block truncate font-mono text-[10px] tracking-wide text-accent">
+              LV{props.session.user.level}
+              {props.session.user.level_name ? ` · ${props.session.user.level_name}` : ""}
+            </span>
+          ) : null}
+        </span>
+      </div>
+
+      {/* The bar dropped to five destinations, so 签到 lives under 我的 and this
+          row is its only entry point. */}
+      <NavLink to="/home/daily" className="flex items-center gap-3 rounded-lg bg-white p-4">
+        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-pill bg-accent/10 text-accent">
+          <CalendarCheck className="h-5 w-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-medium text-zinc-900">每日签到</span>
+          <span className="block truncate text-[11px] text-zinc-500">连续签到可累积金币</span>
+        </span>
+        <ChevronRight className="h-4 w-4 flex-none text-zinc-400" />
+      </NavLink>
+
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <div className="text-sm font-medium text-zinc-900">外观</div>
           <div className="text-xs text-zinc-500">
@@ -567,7 +606,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
                 aria-pressed={active}
                 className={[
                   "flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors",
-                  active ? "bg-zinc-900 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900",
+                  active ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900",
                 ].join(" ")}
                 onClick={() => changeThemeMode(mode)}
               >
@@ -618,7 +657,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
         </div>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">账号</div>
         <div className="mb-3 space-y-1 text-sm text-zinc-700">
           <div>用户名：{props.session.user.username}</div>
@@ -631,14 +670,14 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
         </div>
         <button
           type="button"
-          className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+          className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50"
           onClick={props.onLogout}
         >
           退出登录
         </button>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">缓存状态</div>
         <div className="mb-2 flex items-center gap-2">
           <button
@@ -708,7 +747,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
                 {cacheItems.map((item) => (
                   <div key={item.aid} className="flex items-center gap-3 px-3 py-2 text-sm">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium text-zinc-900">AID：{item.aid}</div>
+                      <div className="truncate font-medium text-zinc-900">#{item.aid}</div>
                       <div className="truncate text-xs text-zinc-500">
                         {formatBytes(item.bytes)} · {item.files} 个文件
                         {item.newestMs ? ` · 最近 ${new Date(item.newestMs).toLocaleString()}` : ""}
@@ -735,7 +774,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
         ) : null}
       </div>
 
-      <div className="hidden md:block rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="hidden md:block rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">阅读滚动</div>
 
         <div className="space-y-3">
@@ -781,7 +820,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
           </div>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
             onClick={() => {
               setWheelMultiplier(DEFAULT_WHEEL_MULTIPLIER);
               setReadWheelMultiplier(DEFAULT_WHEEL_MULTIPLIER);
@@ -812,7 +851,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
           </div>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
             onClick={() => {
               setImageScale(DEFAULT_READ_IMG_SCALE);
               setReadImageScale(DEFAULT_READ_IMG_SCALE);
@@ -824,7 +863,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
         </div>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">阅读性能</div>
         <div className="space-y-3">
           <div className="text-sm text-zinc-700">
@@ -852,7 +891,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
           </div>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
             onClick={() => {
               setReadConcurrency(DEFAULT_READ_MAX_CONCURRENCY);
               setReadMaxConcurrency(DEFAULT_READ_MAX_CONCURRENCY);
@@ -863,14 +902,14 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
         </div>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">网络代理</div>
         <div className="space-y-3">
           <div className="text-xs text-zinc-500">
             SOCKS 代理（示例：<span className="font-mono">socks5://127.0.0.1:1080</span>），留空表示不使用代理。
           </div>
           <input
-            className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm"
+            className="h-9 w-full rounded-pill border border-zinc-300 px-3.5 text-[13px]"
             placeholder="socks5://127.0.0.1:1080"
             value={socksProxy}
             onChange={(e) => setSocksProxy(e.currentTarget.value)}
@@ -878,7 +917,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
               disabled={proxyLoading}
               onClick={() => {
                 void (async () => {
@@ -904,7 +943,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
             </button>
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
               disabled={proxyLoading}
               onClick={() => setSocksProxy("")}
             >
@@ -923,7 +962,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
         </div>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="text-sm font-medium text-zinc-900">API 域名</div>
           <div className="flex items-center gap-2">
@@ -1010,7 +1049,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
         <div className="mt-2 text-xs text-zinc-500">选择后作为优先域名；请求失败时仍会自动切换。</div>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">阅读进度数据库</div>
         <div className="space-y-2 text-xs text-zinc-600">
           <div>导出/导入的是 read-progress.sled 目录的压缩包。</div>
@@ -1019,7 +1058,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
         <div className="mt-3 flex items-center gap-2">
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
             onClick={() => {
               void (async () => {
                 try {
@@ -1039,7 +1078,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
           </button>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
             onClick={() => {
               void (async () => {
                 try {
@@ -1066,7 +1105,7 @@ export default function SettingsPage(props: { session: Session; onLogout: () => 
       </div>
 
       {appVersion ? (
-        <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+        <div className="rounded-lg bg-white p-4">
           <div className="mb-3 text-sm font-medium text-zinc-900">关于</div>
           <div className="text-sm text-zinc-700">
             版本：{appVersion}（{isDevBuild ? "dev" : "release"}）

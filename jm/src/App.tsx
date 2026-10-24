@@ -507,6 +507,9 @@ function AppRoutes() {
   const startupLoginTriedRef = useRef(false);
   const silentLoginCountRef = useRef(0);
   const silentLoginInFlightRef = useRef<Promise<boolean> | null>(null);
+  const [startupCheckDone, setStartupCheckDone] = useState(
+    () => isAccountSession(loadSession()),
+  );
 
   const onLoggedIn = useCallback((s: Session) => {
     silentLoginCountRef.current = 0;
@@ -594,10 +597,15 @@ function AppRoutes() {
   }, [silentReLogin]);
 
   useEffect(() => {
-    if (session) return;
     if (startupLoginTriedRef.current) return;
     startupLoginTriedRef.current = true;
-    void silentReLogin();
+
+    // 已有真实账号会话时直接进入；游客或无效会话才在启动阶段自动登录。
+    if (isAccountSession(session)) {
+      setStartupCheckDone(true);
+      return;
+    }
+    void silentReLogin().finally(() => setStartupCheckDone(true));
   }, [session, silentReLogin]);
 
   useEffect(() => {
@@ -666,6 +674,17 @@ function AppRoutes() {
       ) : null,
     [ensureLogin, onAuthExpired, onLogout, session],
   );
+
+  if (!startupCheckDone) {
+    return (
+      <div
+        className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-600"
+        role="status"
+      >
+        正在自动登录…
+      </div>
+    );
+  }
 
   return (
     <Routes>

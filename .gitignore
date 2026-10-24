@@ -38,3 +38,7 @@ jm/src-tauri/keystore.properties
 
 # Native libraries copied into the generated Android project by `tauri android build`
 jm/src-tauri/gen/android/app/src/main/jniLibs
+
+# Local build caches used by sandboxed APK builds
+jm/.gradle-home
+jm/.tmp-build

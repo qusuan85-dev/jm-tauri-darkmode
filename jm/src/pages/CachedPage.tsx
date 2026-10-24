@@ -13,6 +13,7 @@ import type { Session } from "../auth/session";
 import Button from "../components/Button";
 import CoverImage from "../components/CoverImage";
 import ListViewToggle from "../components/ListViewToggle";
+import ShelfTabs from "../components/ShelfTabs";
 import Loading from "../components/Loading";
 import { useToast } from "../components/Toast";
 import { refreshCachedAlbums } from "../cache/cachedAlbums";
@@ -315,7 +316,8 @@ export default function CachedPage(props: {
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
+      <ShelfTabs />
+      <div className="font-mono text-[11px] tracking-wide text-zinc-500">
         已缓存 · {rows.length} 个本子 · 共 {formatBytes(totalBytes)}
         {visible.length !== rows.length ? ` · 筛选出 ${visible.length} 个` : ""}
       </div>
@@ -323,7 +325,7 @@ export default function CachedPage(props: {
       <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <input
-            className="h-9 min-w-[160px] flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm"
+            className="h-9 min-w-[160px] flex-1 rounded-pill border border-zinc-300 px-3.5 text-[13px]"
             placeholder="按标题或 AID 筛选"
             value={filter}
             onChange={(e) => setFilter(e.currentTarget.value)}
@@ -339,7 +341,7 @@ export default function CachedPage(props: {
           </select>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
             onClick={() => void load()}
             disabled={loading}
           >
@@ -389,7 +391,7 @@ export default function CachedPage(props: {
                     {row.title || `本子 ${row.aid}`}
                   </button>
                   <div className="truncate text-xs text-zinc-600">
-                    {row.author ? `作者：${row.author}` : `AID：${row.aid}`}
+                    {row.author ? `${row.author}` : `#${row.aid}`}
                   </div>
                   <div className="truncate text-xs text-zinc-500">
                     {formatBytes(row.bytes)} · {row.files} 个文件
@@ -438,7 +440,7 @@ export default function CachedPage(props: {
                     {row.title || `本子 ${row.aid}`}
                   </button>
                   <div className="truncate text-xs text-zinc-600">
-                    {row.author ? `${row.author} · ` : ""}AID：{row.aid}
+                    {row.author ? `${row.author} · ` : ""}#{row.aid}
                   </div>
                   <div className="truncate text-xs text-zinc-500">
                     {formatBytes(row.bytes)} · {row.files} 个文件

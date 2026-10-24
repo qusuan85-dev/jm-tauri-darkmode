@@ -8,6 +8,7 @@ import { isAuthExpiredError } from "../auth/errors";
 import CoverImage from "../components/CoverImage";
 import Button from "../components/Button";
 import ListViewToggle from "../components/ListViewToggle";
+import ShelfTabs from "../components/ShelfTabs";
 import Loading from "../components/Loading";
 import { useToast } from "../components/Toast";
 import { getImgBase } from "../config/endpoints";
@@ -452,7 +453,8 @@ export default function FavoritesPage(props: {
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
+      <ShelfTabs />
+      <div className="font-mono text-[11px] tracking-wide text-zinc-500">
         收藏(在线) · {header}
       </div>
 
@@ -502,7 +504,7 @@ export default function FavoritesPage(props: {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
               onClick={() => patchParams({ page: Math.max(1, favoritePage - 1) })}
               disabled={favoriteLoading || favoritePage <= 1}
             >
@@ -510,7 +512,7 @@ export default function FavoritesPage(props: {
             </button>
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
               onClick={() => patchParams({ page: favoritePage + 1 })}
               disabled={favoriteLoading}
             >
@@ -518,7 +520,7 @@ export default function FavoritesPage(props: {
             </button>
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
               onClick={() => void mutate()}
               disabled={favoriteLoading}
             >
@@ -571,7 +573,7 @@ export default function FavoritesPage(props: {
               <button
                 type="button"
                 data-batch-move
-                className="inline-flex h-9 items-center gap-1 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                className="inline-flex h-9 items-center gap-1 rounded-pill bg-zinc-900 px-3.5 text-[13px] font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
                 onClick={() => setMovePanelOpen((v) => !v)}
                 disabled={batchBusy || selectedCount === 0}
               >
@@ -581,7 +583,7 @@ export default function FavoritesPage(props: {
               <button
                 type="button"
                 data-batch-unfavorite
-                className="inline-flex h-9 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-red-600 hover:bg-zinc-50 disabled:opacity-60"
+                className="inline-flex h-9 items-center gap-1 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-red-600 hover:bg-zinc-50 disabled:opacity-60"
                 onClick={() => void batchUnfavorite()}
                 disabled={batchBusy || selectedCount === 0}
               >
@@ -609,7 +611,7 @@ export default function FavoritesPage(props: {
                     <button
                       key={folder.id}
                       type="button"
-                      className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                      className="inline-flex h-8 items-center gap-1 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
                       data-batch-move-target={folder.id}
                       onClick={() => void batchMove(folder.id, folder.name)}
                       disabled={batchBusy || folder.id === favoriteFolderId}
@@ -624,14 +626,14 @@ export default function FavoritesPage(props: {
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <input
-                    className="h-8 min-w-[160px] flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm"
+                    className="h-8 min-w-[160px] flex-1 rounded-pill border border-zinc-300 px-3.5 text-[13px]"
                     placeholder="新建收藏夹名称"
                     value={newFolderName}
                     onChange={(e) => setNewFolderName(e.currentTarget.value)}
                   />
                   <button
                     type="button"
-                    className="h-8 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    className="h-8 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
                     onClick={() => void addFolder()}
                     disabled={!newFolderName.trim() || batchBusy}
                   >
@@ -650,14 +652,14 @@ export default function FavoritesPage(props: {
         ) : (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <input
-              className="h-9 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm"
+              className="h-9 flex-1 rounded-pill border border-zinc-300 px-3.5 text-[13px]"
               placeholder="新建收藏文件夹名称"
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.currentTarget.value)}
             />
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
               onClick={() => void addFolder()}
               disabled={!newFolderName.trim() || favoriteLoading}
             >
@@ -665,7 +667,7 @@ export default function FavoritesPage(props: {
             </button>
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm text-red-600 hover:bg-zinc-50"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-red-600 hover:bg-zinc-50"
               onClick={() => void delFolder(favoriteFolderId)}
               disabled={favoriteFolderId === "0" || favoriteLoading}
             >
@@ -728,9 +730,9 @@ export default function FavoritesPage(props: {
                       {title}
                     </button>
                     <div className="truncate text-xs text-zinc-600">
-                      {author ? `作者：${author}` : "作者：—"}
+                      {author ? `${author}` : "—"}
                     </div>
-                    <div className="truncate text-xs text-zinc-500">AID：{aid || "—"}</div>
+                    <div className="truncate text-xs text-zinc-500">#{aid || "—"}</div>
                     {batchMode ? null : (
                       <div className="mt-auto flex items-center gap-2">
                         <button
@@ -799,8 +801,8 @@ export default function FavoritesPage(props: {
                       {title}
                     </button>
                     <div className="truncate text-xs text-zinc-600">
-                      {author ? `作者：${author} · ` : ""}
-                      AID：{aid || "—"}
+                      {author ? `${author} · ` : ""}
+                      #{aid || "—"}
                     </div>
                   </div>
                   {batchMode ? null : (

@@ -21,13 +21,14 @@ module.exports = {
        * `none` / `full` keep their meaning.
        */
       borderRadius: {
-        sm: "6px",
-        DEFAULT: "8px",
+        sm: "8px",
+        DEFAULT: "10px",
         md: "12px",
-        lg: "16px",
-        xl: "20px",
-        "2xl": "24px",
-        "3xl": "32px",
+        lg: "14px",
+        xl: "22px",
+        "2xl": "28px",
+        "3xl": "36px",
+        pill: "9999px",
       },
       colors: {
         zinc: {

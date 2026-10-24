@@ -266,17 +266,21 @@ export default function CategoryRankPage(props: {
   const header = tabIndex === 0 ? "分类标签" : `第 ${page} 页`;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
-        分类与排行 · {header}
+    <div className="flex flex-col gap-4">
+      <div>
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+          JM · 榜单
+        </div>
+        <h1 className="text-[26px] font-medium leading-none text-zinc-900">排行</h1>
       </div>
+      <div className="font-mono text-[11px] tracking-wide text-zinc-500">分类与排行 · {header}</div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">分类</div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className={`h-9 rounded-md border px-3 text-sm ${
+            className={`h-[30px] rounded-pill border px-3.5 text-xs font-medium ${
               tabIndex === 0 ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white"
             }`}
             onClick={() => {
@@ -293,7 +297,7 @@ export default function CategoryRankPage(props: {
               <button
                 key={`${c?.slug ?? c?.id ?? name}-${i}`}
                 type="button"
-                className={`h-9 rounded-md border px-3 text-sm ${
+                className={`h-[30px] rounded-pill border px-3.5 text-xs font-medium ${
                   active ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white"
                 }`}
                 onClick={() => {
@@ -327,7 +331,7 @@ export default function CategoryRankPage(props: {
                     <button
                       key={text}
                       type="button"
-                      className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs text-zinc-800 hover:bg-zinc-50"
+                      className="h-[30px] rounded-pill border border-zinc-300 bg-white px-3 text-xs text-zinc-800 hover:bg-zinc-50"
                       onClick={() => props.onOpenSearch(text)}
                     >
                       {text}
@@ -346,7 +350,7 @@ export default function CategoryRankPage(props: {
           <div className="mt-4">
             <div className="flex flex-wrap items-center gap-2">
               <select
-                className="h-9 rounded-md border border-zinc-200 bg-white px-2 text-sm"
+                className="h-9 rounded-pill border border-zinc-300 bg-white px-3.5 text-[13px]"
                 value={sortKey}
                 onChange={(e) => {
                   setSortKey(e.currentTarget.value);
@@ -363,7 +367,7 @@ export default function CategoryRankPage(props: {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+                  className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={searchLoading || page <= 1}
                 >
@@ -371,7 +375,7 @@ export default function CategoryRankPage(props: {
                 </button>
                 <button
                   type="button"
-                  className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+                  className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
                   onClick={() => setPage((p) => Math.min(maxPage, p + 1))}
                   disabled={searchLoading || page >= maxPage}
                 >
@@ -384,13 +388,13 @@ export default function CategoryRankPage(props: {
                   type="number"
                   min={1}
                   max={maxPage}
-                  className="h-9 w-20 rounded-md border border-zinc-200 bg-white px-2 text-sm"
+                  className="h-9 w-20 rounded-pill border border-zinc-300 bg-white px-3 text-[13px]"
                   value={jumpValue}
                   onChange={(e) => setJumpValue(e.currentTarget.value)}
                 />
                 <button
                   type="button"
-                  className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+                  className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
                   onClick={() => {
                     const next = Number(jumpValue);
                     if (!Number.isFinite(next)) return;
@@ -426,7 +430,7 @@ export default function CategoryRankPage(props: {
                     暂无数据
                   </div>
                 ) : null}
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-3">
                   {list.map((item, idx) => {
                   const aid =
                     typeof item?.id === "string" || typeof item?.id === "number"
@@ -448,11 +452,11 @@ export default function CategoryRankPage(props: {
                   return (
                     <div
                       key={`${aid}-${idx}`}
-                      className="flex flex-col overflow-hidden rounded-md border border-zinc-200 bg-white"
+                      className="flex flex-col gap-2"
                     >
                       <button
                         type="button"
-                        className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-100"
+                        className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-zinc-100"
                         onClick={() => aid && props.onOpenComic(aid)}
                         disabled={!aid}
                       >
@@ -463,19 +467,19 @@ export default function CategoryRankPage(props: {
                           className="h-full w-full object-cover"
                         />
                       </button>
-                      <div className="flex flex-1 flex-col gap-1 p-2">
+                      <div className="flex flex-1 flex-col gap-1">
                         <button
                           type="button"
-                          className="line-clamp-2 text-left text-sm font-medium text-zinc-900 hover:underline"
+                          className="line-clamp-2 text-left text-[13px] font-medium leading-snug text-zinc-900 hover:underline"
                           onClick={() => aid && props.onOpenComic(aid)}
                           disabled={!aid}
                         >
                           {title}
                         </button>
                         <div className="truncate text-xs text-zinc-600">
-                          {author ? `作者：${author}` : "作者：—"}
+                          {author ? `${author}` : "—"}
                         </div>
-                        <div className="truncate text-xs text-zinc-500">AID：{aid || "—"}</div>
+                        <div className="truncate text-xs text-zinc-500">#{aid || "—"}</div>
                       </div>
                     </div>
                   );
@@ -530,8 +534,8 @@ export default function CategoryRankPage(props: {
                           {title}
                         </button>
                         <div className="truncate text-xs text-zinc-600">
-                          {author ? `作者：${author} · ` : ""}
-                          AID：{aid || "—"}
+                          {author ? `${author} · ` : ""}
+                          #{aid || "—"}
                         </div>
                       </div>
                     </div>

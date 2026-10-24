@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Loader2, X } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
 
 import type { Session } from "../auth/session";
 import { isAuthExpiredError } from "../auth/errors";
@@ -561,23 +561,30 @@ export default function SearchPage(props: {
   }, [searchSort, setSearchParams]);
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
+    <div className="flex flex-col gap-4">
+      <div>
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+          JM · 检索
+        </div>
+        <h1 className="text-[26px] font-medium leading-none text-zinc-900">搜索</h1>
+      </div>
+      <div className="font-mono text-[11px] tracking-wide text-zinc-500">
         搜索 ·{" "}
         {committedQuery
           ? `${total != null ? `共 ${String(total)} 条 · ` : ""}已加载 ${list.length}${
               loadedPages > 0 ? ` · 第 ${loadedPages} 页` : ""
             }`
-          : "—"}
+          : "输入关键词或 AID 开始检索"}
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">条件</div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
             <input
               ref={queryInputRef}
-              className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm"
+              className="h-9 w-full rounded-pill border border-zinc-300 pl-10 pr-3.5 text-[13px]"
               placeholder={adapter.placeholder}
               value={queryInput}
               onFocus={() => {
@@ -675,7 +682,7 @@ export default function SearchPage(props: {
           </div>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
             onClick={() => void runSearch()}
             disabled={loading}
           >
@@ -722,7 +729,7 @@ export default function SearchPage(props: {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
             onClick={() => void loadMore()}
             disabled={loading || !canLoadMore}
           >
@@ -730,7 +737,7 @@ export default function SearchPage(props: {
           </button>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 disabled:opacity-60"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
             onClick={clearResults}
             disabled={!committedQuery && !items.length}
           >
@@ -748,7 +755,7 @@ export default function SearchPage(props: {
         ) : null}
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 flex items-center justify-between gap-2 text-sm font-medium text-zinc-900">
           <div>结果</div>
           <ListViewToggle value={viewMode} onChange={setViewMode} />
@@ -789,7 +796,7 @@ export default function SearchPage(props: {
                         {title}
                       </button>
                       <div className="truncate text-xs text-zinc-600">
-                        {author ? `作者：${author}` : "作者：—"}
+                        {author ? `${author}` : "—"}
                       </div>
                       <div className="truncate text-xs text-zinc-500">{adapter.idLabel}：{aid || "—"}</div>
                     </div>
@@ -831,8 +838,8 @@ export default function SearchPage(props: {
                         {title}
                       </button>
                       <div className="mt-1 text-xs text-zinc-600">
-                        {author ? `作者：${author} · ` : ""}
-                        {category ? `分类：${category} · ` : ""}
+                        {author ? `${author} · ` : ""}
+                        {category ? `${category} · ` : ""}
                         {adapter.idLabel}：{aid || "—"}
                       </div>
                     </div>

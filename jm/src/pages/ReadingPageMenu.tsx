@@ -18,7 +18,7 @@ function ChapterNavBar(props: {
       <div className="flex items-center justify-between gap-3">
         <button
           type="button"
-          className="h-10 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
+          className="h-10 flex-1 rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
           disabled={!prev}
           onClick={() => {
             if (!prev) return;
@@ -29,7 +29,7 @@ function ChapterNavBar(props: {
         </button>
         <button
           type="button"
-          className="h-10 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
+          className="h-10 flex-1 rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
           disabled={!next}
           onClick={() => {
             if (!next) return;
@@ -97,7 +97,7 @@ export default function ReadingPageMenu(props: ReadingPageMenuProps) {
             <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
               <button
                 type="button"
-                className="flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+                className="flex h-9 items-center justify-center rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50"
                 onClick={(ev) => {
                   ev.stopPropagation();
                   props.onGoHome();
@@ -110,7 +110,7 @@ export default function ReadingPageMenu(props: ReadingPageMenuProps) {
               </button>
               <button
                 type="button"
-                className="flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+                className="flex h-9 items-center justify-center rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50"
                 onClick={(ev) => {
                   ev.stopPropagation();
                   props.onBack();

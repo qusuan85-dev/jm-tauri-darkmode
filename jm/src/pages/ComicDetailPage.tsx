@@ -898,25 +898,40 @@ export default function ComicDetailPage(props: {
   return (
     <div className="safe-area-top min-h-screen bg-zinc-100 p-4 text-zinc-900 sm:p-6">
       <div className="mx-auto flex w-full min-w-0 max-w-[900px] flex-col gap-4">
-        <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-sm md:flex-row md:items-center md:justify-between">
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <div className="break-words text-base font-semibold text-zinc-900">
-                {title}
+        <div className="flex flex-col gap-3 rounded-lg bg-white px-4 py-4 md:flex-row md:items-center md:justify-between">
+          {/* Hero: a small cover next to the metadata reads as "this work" far
+              faster than a bare title block did. */}
+          <div className="flex min-w-0 flex-1 gap-3.5">
+            {coverUrl ? (
+              <div className="relative h-[104px] w-[78px] flex-none overflow-hidden rounded-lg bg-zinc-100">
+                <CoverImage
+                  src={coverUrl}
+                  alt={title}
+                  aid={rootAid}
+                  className="h-full w-full object-cover"
+                />
               </div>
-              {usingOfflineAlbum ? (
-                <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">
-                  离线缓存
-                </span>
-              ) : null}
-            </div>
-            <div className="break-words text-sm text-zinc-600">
-              {authorText ? `作者：${authorText}` : null}
+            ) : null}
+            <div className="flex min-w-0 flex-1 flex-col justify-center">
+              <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                JM · 作品详情
+              </div>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <div className="break-words text-[20px] font-semibold leading-snug text-zinc-900">
+                  {title}
+                </div>
+                {usingOfflineAlbum ? (
+                  <span className="rounded-pill border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                    离线缓存
+                  </span>
+                ) : null}
+              </div>
+              <div className="break-words text-[13px] text-zinc-500">{authorText || null}</div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 md:justify-end">
             <Button
-              className="h-9 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+              className="h-9 rounded-pill bg-zinc-900 px-3.5 text-[13px] font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
               disabled={!album || !chapters.length}
               onClick={startOrResumeReading}
             >
@@ -925,14 +940,14 @@ export default function ComicDetailPage(props: {
             </Button>
             <button
               type="button"
-              className="inline-flex h-9 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+              aria-label="返回"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-pill border border-zinc-300 text-zinc-500 hover:text-zinc-900"
               onClick={props.onBack}
             >
               <ArrowLeft className="h-4 w-4" />
-              返回
             </button>
             <Button
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
               disabled={cacheDownloading || !album}
               loading={cacheDownloading}
               onClick={cacheAll}
@@ -948,7 +963,7 @@ export default function ComicDetailPage(props: {
             </Button>
             {adapter.capabilities.exportAlbum ? (
               <Button
-                className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
                 disabled={!album || exportBusy}
                 loading={exportBusy}
                 onClick={() => setExportOpen((v) => !v)}
@@ -960,7 +975,7 @@ export default function ComicDetailPage(props: {
               </Button>
             ) : null}
             <Button
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
               disabled={!album || (toggleBusy && !adapter.capabilities.favoriteFolders)}
               onClick={() => {
                 // Sources with folder-style collections open the sheet; the
@@ -978,14 +993,31 @@ export default function ComicDetailPage(props: {
           </div>
         </div>
 
+        {/* 数据条 — 原来「点赞：/浏览：/评论：」是三行前缀标签，得逐行读才知道
+            在说什么；提成三个数字之后一眼就能扫到。 */}
+        <div className="flex items-stretch rounded-lg bg-white py-3.5">
+          {[
+            { label: "浏览", value: album?.total_views },
+            { label: "点赞", value: album?.likes },
+            { label: "章节", value: chapters.length || undefined },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex flex-1 flex-col items-center gap-1">
+              <div className="font-mono text-[15px] font-medium text-zinc-900">
+                {value != null ? String(value) : "—"}
+              </div>
+              <div className="text-[10px] text-zinc-500">{label}</div>
+            </div>
+          ))}
+        </div>
+
         {errorText ? (
-          <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-red-600 shadow-sm">
+          <div className="rounded-lg bg-white p-3 text-sm text-red-600">
             {errorText}
           </div>
         ) : null}
 
         {favSheetOpen && adapter.capabilities.favoriteFolders ? (
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="rounded-lg bg-white p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="text-sm font-medium text-zinc-900">
                 {album?.is_favorite ? "移动到收藏夹" : "收藏到收藏夹"}
@@ -1013,7 +1045,7 @@ export default function ComicDetailPage(props: {
                 {!album?.is_favorite ? (
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    className="inline-flex h-8 items-center gap-1 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
                     disabled={!!favBusyFolderId}
                     onClick={() => void saveToFavoriteFolder("0", "默认收藏夹")}
                   >
@@ -1025,7 +1057,7 @@ export default function ComicDetailPage(props: {
                   <button
                     key={folder.id}
                     type="button"
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    className="inline-flex h-8 items-center gap-1 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
                     disabled={!!favBusyFolderId}
                     onClick={() => void saveToFavoriteFolder(folder.id, folder.name)}
                   >
@@ -1047,14 +1079,14 @@ export default function ComicDetailPage(props: {
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <input
-                className="h-8 min-w-[160px] flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm"
+                className="h-8 min-w-[160px] flex-1 rounded-pill border border-zinc-300 px-3.5 text-[13px]"
                 placeholder="新建收藏夹名称"
                 value={newFavFolderName}
                 onChange={(e) => setNewFavFolderName(e.currentTarget.value)}
               />
               <button
                 type="button"
-                className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                className="inline-flex h-8 items-center gap-1 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
                 disabled={!newFavFolderName.trim() || favCreating}
                 onClick={() => void createFavoriteFolder()}
               >
@@ -1064,7 +1096,7 @@ export default function ComicDetailPage(props: {
               {album?.is_favorite ? (
                 <button
                   type="button"
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-red-600 hover:bg-zinc-50 disabled:opacity-60"
+                  className="inline-flex h-8 items-center gap-1 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-red-600 hover:bg-zinc-50 disabled:opacity-60"
                   disabled={toggleBusy || !!favBusyFolderId}
                   onClick={() => void toggleFavorite()}
                 >
@@ -1077,7 +1109,7 @@ export default function ComicDetailPage(props: {
         ) : null}
 
         {cacheDownloading && cacheProgress ? (
-          <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
+          <div className="rounded-lg bg-white p-3 text-sm text-zinc-600">
             {cacheProgress.total > 0
               ? `正在缓存：${cacheProgress.done}/${cacheProgress.total}`
               : "正在准备缓存..."}
@@ -1086,7 +1118,7 @@ export default function ComicDetailPage(props: {
         ) : null}
 
         {exportOpen && adapter.capabilities.exportAlbum ? (
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="rounded-lg bg-white p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="text-sm font-medium text-zinc-900">导出到目录</div>
               <button
@@ -1185,7 +1217,7 @@ export default function ComicDetailPage(props: {
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Button
-                className="h-9 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white disabled:opacity-60"
+                className="h-9 rounded-pill bg-zinc-900 px-3.5 text-[13px] font-medium text-white disabled:opacity-60"
                 loading={exportBusy}
                 disabled={exportBusy || !album}
                 onClick={() => void runExport()}
@@ -1195,7 +1227,7 @@ export default function ComicDetailPage(props: {
               {exportBusy ? (
                 <button
                   type="button"
-                  className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm text-red-600 hover:bg-zinc-50"
+                  className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-red-600 hover:bg-zinc-50"
                   onClick={() => void cancelExport()}
                 >
                   取消
@@ -1223,7 +1255,7 @@ export default function ComicDetailPage(props: {
         ) : null}
 
         {loading ? (
-          <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
+          <div className="rounded-lg bg-white p-3 text-sm text-zinc-600">
             <Loading />
           </div>
         ) : null}
@@ -1231,7 +1263,7 @@ export default function ComicDetailPage(props: {
         {album ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-[320px_1fr]">
             <div className="flex flex-col gap-3">
-              <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="rounded-lg bg-white p-4">
                 <div className="mb-3 text-sm font-medium text-zinc-900">封面</div>
                 <div className="relative">
                   <CoverImage
@@ -1243,7 +1275,7 @@ export default function ComicDetailPage(props: {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="rounded-lg bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-sm font-medium text-zinc-900">阅读记录</div>
                   <div className="flex items-center gap-2">
@@ -1284,7 +1316,7 @@ export default function ComicDetailPage(props: {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="rounded-lg bg-white p-4">
                 <div className="mb-3 text-sm font-medium text-zinc-900">信息</div>
                 <div className="space-y-1 text-sm text-zinc-700">
                   <div>作品ID：{rootAid}</div>
@@ -1303,13 +1335,11 @@ export default function ComicDetailPage(props: {
                       )}
                     </div>
                   ) : null}
-                  <div>点赞：{String(album.likes ?? "—")}</div>
-                  <div>浏览：{String(album.total_views ?? "—")}</div>
                   <div>评论：{String(album.comment_total ?? "—")}</div>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="rounded-lg bg-white p-4">
                 <div className="mb-3 text-sm font-medium text-zinc-900">标签</div>
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-zinc-700">
                   {tags.length ? (
@@ -1317,7 +1347,7 @@ export default function ComicDetailPage(props: {
                       <button
                         key={t}
                         type="button"
-                        className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                        className="rounded-pill bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-900"
                         onClick={() => props.onOpenSearch(t)}
                       >
                         {t}
@@ -1334,7 +1364,7 @@ export default function ComicDetailPage(props: {
                       <button
                         key={name}
                         type="button"
-                        className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                        className="rounded-pill bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-900"
                         onClick={() => props.onOpenSearch(name)}
                       >
                         {name}
@@ -1348,7 +1378,7 @@ export default function ComicDetailPage(props: {
             </div>
 
             <div className="flex flex-col gap-4">
-              <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="rounded-lg bg-white p-4">
                 <div className="mb-3 text-sm font-medium text-zinc-900">简介</div>
                 <div className="whitespace-pre-wrap text-sm text-zinc-700">
                   {album.description || "—"}
@@ -1373,7 +1403,7 @@ export default function ComicDetailPage(props: {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="rounded-lg bg-white p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-sm font-medium text-zinc-900">
@@ -1435,7 +1465,7 @@ export default function ComicDetailPage(props: {
                       {commentBusy ? "正在发送..." : "发表评论"}
                     </div>
                     <Button
-                      className="h-8 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                      className="h-8 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
                       disabled={commentBusy || !commentInput.trim()}
                       loading={commentBusy}
                       onClick={sendComment}

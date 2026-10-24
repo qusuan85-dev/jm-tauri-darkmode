@@ -1,17 +1,24 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { type ReactNode } from "react";
+import { NavLink, useLocation } from "react-router-dom";
 import {
-  BookOpen,
   CalendarCheck,
   Clock,
   HardDriveDownload,
   Heart,
   Home,
+  Library,
   Search,
   Settings,
   Tags,
+  User,
 } from "lucide-react";
 
+/**
+ * The three reader destinations (在线收藏 / 已缓存 / 浏览记录) are one screen
+ * switched by a segmented control, so the bottom bar only ever carries five
+ * top-level destinations. Six equally-weighted tabs were not scannable.
+ */
+const SHELF_PATHS = ["/home/favorites", "/home/cached", "/home/history"];
 
 function Section(props: { title: string; children: ReactNode }) {
   return (
@@ -29,95 +36,45 @@ export default function SideNav(props: {
   const variant = props.variant ?? "sidebar";
   const iconClass = "h-4 w-4";
   const bottomIconClass = "h-5 w-5";
-  const [readMenuOpen, setReadMenuOpen] = useState(false);
-  const readMenuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!readMenuOpen) return;
-    const onDown = (ev: MouseEvent) => {
-      const target = ev.target as HTMLElement | null;
-      if (!target) return;
-      if (readMenuRef.current?.contains(target)) return;
-      setReadMenuOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [readMenuOpen]);
+  const { pathname } = useLocation();
 
   if (variant === "bottom") {
     const bottomItems = [
       { key: "home" as const, label: "首页", Icon: Home, to: "/home/home" },
-      { key: "read" as const, label: "阅读", Icon: BookOpen },
-      { key: "daily" as const, label: "签到", Icon: CalendarCheck, to: "/home/daily" },
-      { key: "category_rank" as const, label: "排行", Icon: Tags, to: "/home/category_rank" },
+      { key: "shelf" as const, label: "书架", Icon: Library, to: "/home/favorites" },
+      { key: "rank" as const, label: "排行", Icon: Tags, to: "/home/category_rank" },
       { key: "search" as const, label: "搜索", Icon: Search, to: "/home/search" },
-      { key: "settings" as const, label: "设置", Icon: Settings, to: "/home/settings" },
+      { key: "mine" as const, label: "我的", Icon: User, to: "/home/settings" },
     ];
     return (
-      <div className="mobile-bottom-nav fixed left-0 right-0 z-30 px-3">
-        {/* Floating frosted bar. Deliberately NOT `overflow-hidden`: that would
-            clip the 阅读 popover that opens above the bar. */}
-        <div className="glass glass-nav mx-auto flex w-full max-w-[900px] items-stretch rounded-2xl p-1">
-          {bottomItems.map(({ key, label, Icon, to }) =>
-            key === "read" ? (
-              <div className="relative flex flex-1 items-center justify-center" ref={readMenuRef} key={key}>
-                {readMenuOpen ? (
-                  <div className="absolute bottom-16 left-1/2 w-40 -translate-x-1/2">
-                    <div className="glass relative rounded-xl p-2">
-                      <NavLink
-                        to="/home/favorites"
-                        className="flex items-center gap-2 rounded-md px-2 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                        onClick={() => setReadMenuOpen(false)}
-                      >
-                        <Heart className="h-4 w-4" />
-                        在线收藏
-                      </NavLink>
-                      <NavLink
-                        to="/home/cached"
-                        className="flex items-center gap-2 rounded-md px-2 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                        onClick={() => setReadMenuOpen(false)}
-                      >
-                        <HardDriveDownload className="h-4 w-4" />
-                        已缓存
-                      </NavLink>
-                      <NavLink
-                        to="/home/history"
-                        className="flex items-center gap-2 rounded-md px-2 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                        onClick={() => setReadMenuOpen(false)}
-                      >
-                        <Clock className="h-4 w-4" />
-                        浏览记录
-                      </NavLink>
-                    </div>
-                  </div>
-                ) : null}
-                <button
-                  type="button"
-                  className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] transition-colors ${
-                    readMenuOpen ? "bg-accent/10 text-accent" : "text-zinc-600 hover:bg-zinc-50"
-                  }`}
-                  onClick={() => setReadMenuOpen((v) => !v)}
-                >
-                  <BookOpen className={bottomIconClass} />
-                  <span>{label}</span>
-                </button>
-              </div>
-            ) : (
-            <NavLink
-              key={key}
-              to={to}
-              className={({ isActive }) =>
-                [
-                  "flex flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] transition-colors",
-                  isActive ? "bg-accent/10 text-accent" : "text-zinc-600 hover:bg-zinc-50",
-                ].join(" ")
-              }
-            >
-              <Icon className={bottomIconClass} />
-              <span>{label}</span>
-            </NavLink>
-            ),
-          )}
+      <div className="mobile-bottom-nav fixed left-0 right-0 z-30 px-4">
+        <div className="glass glass-nav mx-auto flex w-full max-w-[900px] items-stretch rounded-pill p-1">
+          {bottomItems.map(({ key, label, Icon, to }) => {
+            const active =
+              key === "shelf"
+                ? SHELF_PATHS.some((p) => pathname.startsWith(p))
+                : pathname.startsWith(to);
+            return (
+              <NavLink
+                key={key}
+                to={to}
+                title={label}
+                className={[
+                  "flex flex-1 flex-col items-center justify-center gap-1 rounded-pill px-2 py-2 transition-colors",
+                  active ? "text-zinc-900" : "text-zinc-500",
+                ].join(" ")}
+              >
+                {/* A filled bar reads far faster than a colour shift, and it
+                    survives every accent preset. */}
+                <span
+                  className={`h-[3px] w-4 rounded-full ${active ? "bg-accent" : ""}`}
+                  aria-hidden="true"
+                />
+                <Icon className={bottomIconClass} />
+                <span className={`text-[10px] ${active ? "font-medium" : ""}`}>{label}</span>
+              </NavLink>
+            );
+          })}
         </div>
       </div>
     );

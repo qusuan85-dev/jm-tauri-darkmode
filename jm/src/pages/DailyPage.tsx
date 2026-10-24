@@ -243,16 +243,23 @@ export default function DailyPage(props: {
   const todayKey = String(new Date().getDate()).padStart(2, "0");
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      {/* 今日状态 + 手动签到 */}
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+    <div className="flex min-w-0 flex-col gap-4">
+      <div>
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+          JM · 每日签到
+        </div>
+        <h1 className="text-[26px] font-medium leading-none text-zinc-900">签到</h1>
+      </div>
+
+      {/* 今日状态 + 手动签到 — 这一页唯一的主角，用强调色渐变把它撑起来 */}
+      <div className="rounded-lg bg-gradient-to-br from-accent to-accent-strong p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-col">
-            <div className="flex items-center gap-2 text-base font-semibold text-zinc-900">
+            <div className="flex items-center gap-2 text-[15px] font-semibold text-accent-fg">
               <CalendarCheck className="h-4 w-4" />
               {info?.event_name || "每日签到"}
             </div>
-            <div className="mt-1 text-sm text-zinc-600" data-daily-status={signed ? "signed" : "unsigned"}>
+            <div className="mt-1 text-[13px] text-accent-fg/75" data-daily-status={signed ? "signed" : "unsigned"}>
               {awaitingLogin
                 ? actionMessage || "正在自动登录…"
                 : loading
@@ -267,7 +274,7 @@ export default function DailyPage(props: {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex h-9 items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+              className="inline-flex h-9 items-center gap-1 rounded-pill border border-accent-fg/30 px-3.5 text-[13px] text-accent-fg hover:bg-accent-fg/10 disabled:opacity-60"
               onClick={() => void mutate()}
               disabled={awaitingLogin || isValidating || signing}
             >
@@ -279,7 +286,7 @@ export default function DailyPage(props: {
               刷新
             </button>
             <Button
-              className="h-9 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+              className="h-9 rounded-pill bg-white px-4 text-[13px] font-medium text-zinc-900 hover:opacity-90 disabled:opacity-60"
               onClick={() => void checkIn()}
               disabled={awaitingLogin || loading || signing}
               loading={signing}
@@ -317,7 +324,7 @@ export default function DailyPage(props: {
               {reward.coin ? (
                 <span
                   data-daily-reward="coin"
-                  className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-amber-600 shadow-sm"
+                  className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-amber-600"
                 >
                   <Coins className="h-4 w-4" />+{reward.coin} 金币
                 </span>
@@ -325,7 +332,7 @@ export default function DailyPage(props: {
               {reward.exp ? (
                 <span
                   data-daily-reward="exp"
-                  className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-teal-600 shadow-sm"
+                  className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-teal-600"
                 >
                   <Sparkles className="h-4 w-4" />+{reward.exp} 经验
                 </span>
@@ -342,7 +349,7 @@ export default function DailyPage(props: {
       </div>
 
       {/* 奖励说明 */}
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">连续奖励</div>
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-md border border-zinc-200 p-3">
@@ -365,7 +372,7 @@ export default function DailyPage(props: {
       </div>
 
       {/* 打卡日历 */}
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">本月打卡</div>
         {loading ? (
           <Loading />
@@ -426,7 +433,7 @@ export default function DailyPage(props: {
       </div>
 
       {/* 自动打卡 */}
-      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg bg-white p-4">
         <label className="flex cursor-pointer items-center justify-between gap-3">
           <span className="min-w-0">
             <span className="block text-sm font-medium text-zinc-900">自动打卡</span>

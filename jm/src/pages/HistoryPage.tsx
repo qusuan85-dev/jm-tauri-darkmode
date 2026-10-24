@@ -5,6 +5,7 @@ import type { Session } from "../auth/session";
 import { isAuthExpiredError } from "../auth/errors";
 import CoverImage from "../components/CoverImage";
 import ListViewToggle from "../components/ListViewToggle";
+import ShelfTabs from "../components/ShelfTabs";
 import Loading from "../components/Loading";
 import { getImgBase } from "../config/endpoints";
 import { getAllReadProgress, getReadProgress } from "../reading/progress";
@@ -268,10 +269,10 @@ export default function HistoryPage(props: {
               </div>
             ) : null}
             <div className="truncate text-xs text-zinc-600">
-              {author ? `作者：${author}` : "作者：—"}
+              {author ? `${author}` : "—"}
             </div>
             <div className="truncate text-xs text-zinc-500">
-              AID：{aid || "—"}
+              #{aid || "—"}
             </div>
             <button
               type="button"
@@ -316,8 +317,8 @@ export default function HistoryPage(props: {
             </div>
           ) : null}
           <div className="truncate text-xs text-zinc-600">
-            {author ? `作者：${author} · ` : ""}
-            AID：{aid || "—"}
+            {author ? `${author} · ` : ""}
+            #{aid || "—"}
           </div>
         </div>
         <div className="flex flex-none items-center gap-2">
@@ -336,9 +337,8 @@ export default function HistoryPage(props: {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
-        浏览记录 · {header}
-      </div>
+      <ShelfTabs />
+      <div className="font-mono text-[11px] tracking-wide text-zinc-500">浏览记录 · {header}</div>
 
       <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="mb-3 text-sm font-medium text-zinc-900">列表</div>
@@ -346,7 +346,7 @@ export default function HistoryPage(props: {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
             onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
             disabled={historyLoading || historyPage <= 1}
           >
@@ -354,7 +354,7 @@ export default function HistoryPage(props: {
           </button>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
             onClick={() => setHistoryPage((p) => p + 1)}
             disabled={historyLoading || historyPage >= maxPage}
           >
@@ -362,7 +362,7 @@ export default function HistoryPage(props: {
           </button>
           <button
             type="button"
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+            className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
             onClick={() => {
               void mutate();
               void mutateLocalProgress();
@@ -383,7 +383,7 @@ export default function HistoryPage(props: {
             />
             <button
               type="button"
-              className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+              className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50"
               onClick={() => {
                 const next = Number(jumpValue);
                 if (!Number.isFinite(next)) return;

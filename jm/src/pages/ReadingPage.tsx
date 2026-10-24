@@ -1184,7 +1184,7 @@ const ReadingChapterSegment = memo(function ReadingChapterSegment(props: {
     >
       {props.showBoundary ? (
         <div className="pointer-events-none sticky top-2 z-20 mb-2 flex justify-center">
-          <div className="rounded-full bg-black/60 px-3 py-1 text-xs text-white shadow backdrop-blur">
+          <div className="rounded-pill bg-black/60 px-3 py-1 text-[11px] text-white shadow backdrop-blur">
             {chapterTitle}
           </div>
         </div>
@@ -1213,13 +1213,13 @@ const ReadingChapterSegment = memo(function ReadingChapterSegment(props: {
       />
 
       {loading ? (
-        <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
+        <div className="rounded-lg bg-white p-3 text-sm text-zinc-600">
           <Loading />
         </div>
       ) : null}
 
       {!loading && chapter && images.length === 0 ? (
-        <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-600 shadow-sm">
+        <div className="rounded-lg bg-white p-3 text-sm text-zinc-600">
           没有图片数据（chapter.images 为空）
         </div>
       ) : null}

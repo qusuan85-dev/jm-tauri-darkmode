@@ -17,22 +17,24 @@
 :root {
   color-scheme: light;
 
-  /* Surfaces */
+  /* Surfaces
+   * Light mode: window and cards are both near-white, so structure is carried
+   * by hairlines and by one recessed panel tone — not by stacked grey boxes. */
   --jm-surface: 255 255 255; /* cards, popovers, toolbars (`bg-white`)        */
-  --jm-zinc-50: 250 250 250; /* inset panels + hover/selected feedback        */
-  --jm-zinc-100: 244 244 245; /* window background                            */
-  --jm-hairline: 244 244 245; /* extra-subtle separators                     */
+  --jm-zinc-50: 247 247 247; /* inset panels + hover/selected feedback        */
+  --jm-zinc-100: 255 255 255; /* window background                            */
+  --jm-hairline: 232 232 235; /* extra-subtle separators                     */
 
-  /* Neutral scale */
-  --jm-zinc-200: 228 228 231; /* borders / dividers                            */
-  --jm-zinc-300: 212 212 216; /* strong borders                               */
-  --jm-zinc-400: 161 161 170; /* placeholders, faint text                     */
-  --jm-zinc-500: 113 113 122; /* muted text                                   */
-  --jm-zinc-600: 82 82 91; /* secondary text                                  */
-  --jm-zinc-700: 63 63 70; /* body text                                       */
+  /* Neutral scale — four text levels: 900 ink / 700 body / 500 mute / 400 faint */
+  --jm-zinc-200: 232 232 235; /* borders / dividers                            */
+  --jm-zinc-300: 209 209 214; /* strong borders                               */
+  --jm-zinc-400: 168 168 176; /* placeholders, faint text                     */
+  --jm-zinc-500: 130 130 140; /* muted text                                   */
+  --jm-zinc-600: 113 113 122; /* secondary text                                */
+  --jm-zinc-700: 59 59 64; /* body text                                       */
   --jm-zinc-800: 39 39 42; /* emphasised text, hover fill                      */
-  --jm-zinc-900: 24 24 27; /* primary text + inverted (dark) fills             */
-  --jm-zinc-950: 9 9 11; /* press states                                       */
+  --jm-zinc-900: 10 10 10; /* primary text + inverted (dark) fills             */
+  --jm-zinc-950: 10 10 10; /* press states                                     */
 
   /* Frosted-glass surfaces ("liquid glass"): translucency, a specular top
      edge and an outer drop shadow. Only used on the floating bottom bar and
@@ -52,23 +54,25 @@
 .dark {
   color-scheme: dark;
 
-  /* Cards sit one step above the window; `zinc-50` stays the *recessive*
-     tone it is in light mode, so insets keep reading as insets and the
-     ubiquitous `hover:bg-zinc-50` keeps the same subtle delta. */
-  --jm-surface: 24 24 27;
-  --jm-zinc-50: 19 19 22;
-  --jm-zinc-100: 9 9 11;
-  --jm-hairline: 35 35 39;
+  /* Near-black canvas: the window sits at #0A0A0A, raised panels lift to
+     #131317 and cards to #1A1A1A. The content — not the chrome — carries the
+     page, which is the whole point of a reader. Cards sit one step above the
+     window; `zinc-50` stays the *recessive* tone it is in light mode, so
+     insets keep reading as insets and `hover:bg-zinc-50` keeps its delta. */
+  --jm-surface: 26 26 26;
+  --jm-zinc-50: 19 19 23;
+  --jm-zinc-100: 10 10 10;
+  --jm-hairline: 33 34 38;
 
-  --jm-zinc-200: 45 45 51;
-  --jm-zinc-300: 63 63 70;
-  --jm-zinc-400: 138 138 148;
-  --jm-zinc-500: 161 161 170;
-  --jm-zinc-600: 180 180 189;
-  --jm-zinc-700: 212 212 216;
-  --jm-zinc-800: 228 228 231;
-  --jm-zinc-900: 244 244 245;
-  --jm-zinc-950: 250 250 250;
+  --jm-zinc-200: 33 34 38;
+  --jm-zinc-300: 54 59 64;
+  --jm-zinc-400: 84 89 94;
+  --jm-zinc-500: 125 130 135;
+  --jm-zinc-600: 161 161 170;
+  --jm-zinc-700: 219 219 224;
+  --jm-zinc-800: 244 244 245;
+  --jm-zinc-900: 255 255 255;
+  --jm-zinc-950: 255 255 255;
 
   --jm-glass-alpha: 0.62;
   --jm-glass-line-alpha: 0.14;
@@ -117,9 +121,11 @@
   --jm-accent-fg: 255 255 255;
 }
 
+/* "amber" carries the sunset accent (#FF7A17 in dark, a deeper #E2620A in
+   light) — the one warm note on an otherwise achromatic surface. */
 :root[data-accent="amber"] {
-  --jm-accent: 180 83 9;
-  --jm-accent-strong: 146 64 14;
+  --jm-accent: 226 98 10;
+  --jm-accent-strong: 194 78 6;
   --jm-accent-fg: 255 255 255;
 }
 
@@ -161,8 +167,8 @@
 }
 
 .dark[data-accent="amber"] {
-  --jm-accent: 251 191 36;
-  --jm-accent-strong: 252 211 77;
+  --jm-accent: 255 122 23;
+  --jm-accent-strong: 255 194 133;
   --jm-accent-fg: 9 9 11;
 }
 
