@@ -5,9 +5,13 @@ import useSWR from "swr";
 import type { Session } from "../auth/session";
 import { isAuthExpiredError } from "../auth/errors";
 import CoverImage from "../components/CoverImage";
+import EmptyState from "../components/EmptyState";
 import ListViewToggle from "../components/ListViewToggle";
 import Loading from "../components/Loading";
+import PageHeader from "../components/PageHeader";
 import { getImgBase } from "../config/endpoints";
+import { usePersistedViewMode } from "../hooks/usePersistedViewMode";
+import { readJsonStorage, writeJsonStorage } from "../utils/storage";
 
 type CategoryItem = {
   id?: string | number;
@@ -24,30 +28,17 @@ type CategoryBlock = {
 const CATEGORY_CACHE_KEY = "jm_category_cache_v1";
 
 function loadCategoryCache(): { categories: CategoryItem[]; blocks: CategoryBlock[] } | null {
-  try {
-    const raw = localStorage.getItem(CATEGORY_CACHE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as { categories?: CategoryItem[]; blocks?: CategoryBlock[] };
-    const categories = Array.isArray(data?.categories) ? data.categories : [];
-    const blocks = Array.isArray(data?.blocks) ? data.blocks : [];
-    return { categories, blocks };
-  } catch {
-    return null;
-  }
+  const data = readJsonStorage<{ categories?: CategoryItem[]; blocks?: CategoryBlock[] }>(
+    CATEGORY_CACHE_KEY,
+  );
+  if (!data) return null;
+  const categories = Array.isArray(data.categories) ? data.categories : [];
+  const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+  return { categories, blocks };
 }
 
 function saveCategoryCache(categories: CategoryItem[], blocks: CategoryBlock[]) {
-  try {
-    localStorage.setItem(
-      CATEGORY_CACHE_KEY,
-      JSON.stringify({
-        categories,
-        blocks,
-      }),
-    );
-  } catch {
-    // ignore
-  }
+  writeJsonStorage(CATEGORY_CACHE_KEY, { categories, blocks });
 }
 
 function sameCategoryCache(
@@ -80,20 +71,14 @@ export default function CategoryRankPage(props: {
   const [searchParams, setSearchParams] = useSearchParams();
   const initRef = useRef(false);
   const viewKey = "jm_view_category_rank";
-  const [viewMode, setViewMode] = useState<"list" | "card">(() => {
-    try {
-      const v = localStorage.getItem(viewKey);
-      return v === "card" ? "card" : "list";
-    } catch {
-      return "list";
-    }
-  });
+  const [viewMode, setViewMode] = usePersistedViewMode(viewKey);
   const [tabIndex, setTabIndex] = useState(0);
   const [sortKey, setSortKey] = useState(SORT_OPTIONS[0].value);
   const [page, setPage] = useState(1);
   const [jumpValue, setJumpValue] = useState("1");
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [pageSizes, setPageSizes] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (initRef.current) return;
@@ -115,6 +100,7 @@ export default function CategoryRankPage(props: {
     data: categoryData,
     error: categoryError,
     isValidating: categoryValidating,
+    mutate: mutateCategories,
   } = useSWR(
     ["categories", props.session.cookies],
     async ([, cookies]) => {
@@ -157,14 +143,6 @@ export default function CategoryRankPage(props: {
         ? categoryError.message
         : String(categoryError)
       : "";
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(viewKey, viewMode);
-    } catch {
-      // ignore
-    }
-  }, [viewMode]);
 
   const activeCategory = tabIndex > 0 ? categories[tabIndex - 1] : null;
 
@@ -210,21 +188,30 @@ export default function CategoryRankPage(props: {
     tabIndex > 0 && activeCategory?.slug
       ? ["category_search", activeCategory.slug, sortKey, page, props.session.cookies]
       : null;
+  const categoryKey = activeCategory?.slug ?? "";
+  const pageSizeKey = `${categoryKey}:${sortKey}`;
+  const requestKey = `${pageSizeKey}:${page}`;
 
   const {
-    data: searchData,
+    data: searchResponse,
     error: searchError,
     isValidating: searchValidating,
+    mutate: mutateSearch,
   } = useSWR(
     searchKey,
     async ([, category, sort, pageValue, cookies]) => {
       const { invoke } = await import("@tauri-apps/api/core");
-      return invoke<any>("api_category_search", {
+      const data = await invoke<any>("api_category_search", {
         category: String(category ?? ""),
         page: String(pageValue),
         sort,
         cookies,
       });
+      return {
+        data,
+        requestKey: `${String(category ?? "")}:${String(sort ?? "")}:${String(pageValue ?? "")}`,
+        pageSizeKey: `${String(category ?? "")}:${String(sort ?? "")}`,
+      };
     },
     {
       keepPreviousData: true,
@@ -237,45 +224,56 @@ export default function CategoryRankPage(props: {
     },
   );
 
+  useEffect(() => {
+    if (!searchResponse) return;
+    const length = Array.isArray(searchResponse.data?.content)
+      ? searchResponse.data.content.length
+      : 0;
+    if (length <= 0) return;
+    setPageSizes((prev) => {
+      const current = prev[searchResponse.pageSizeKey] ?? 0;
+      if (current >= length) return prev;
+      return { ...prev, [searchResponse.pageSizeKey]: length };
+    });
+  }, [searchResponse]);
+
+  const currentResponse = searchResponse?.requestKey === requestKey ? searchResponse.data : null;
   const searchErrorText =
     searchError && !isAuthExpiredError(searchError)
       ? searchError instanceof Error
         ? searchError.message
         : String(searchError)
       : "";
-  const searchLoading = searchValidating && !searchData;
+  const searchLoading =
+    tabIndex > 0 && !searchError && (!currentResponse || searchValidating);
 
   useEffect(() => {
     setJumpValue(String(page));
   }, [page]);
 
-  const list: any[] = Array.isArray(searchData?.content) ? searchData.content : [];
+  const list: any[] = Array.isArray(currentResponse?.content) ? currentResponse.content : [];
   const total =
-    typeof searchData?.total === "number"
-      ? searchData.total
-      : typeof searchData?.total === "string"
-        ? Number(searchData.total)
+    typeof currentResponse?.total === "number"
+      ? currentResponse.total
+      : typeof currentResponse?.total === "string" && currentResponse.total.trim()
+        ? Number(currentResponse.total)
         : null;
+  const observedPageSize = pageSizes[pageSizeKey] ?? 0;
   const maxPage = useMemo(() => {
-    if (total != null && list.length > 0) {
-      return Math.max(1, Math.floor((total - 1) / list.length) + 1);
+    if (total != null && Number.isFinite(total) && observedPageSize > 0) {
+      return Math.max(1, Math.ceil(total / observedPageSize));
     }
     return Math.max(1, page);
-  }, [list.length, page, total]);
+  }, [observedPageSize, page, total]);
 
   const header = tabIndex === 0 ? "分类标签" : `第 ${page} 页`;
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-          JM · 榜单
-        </div>
-        <h1 className="text-[26px] font-medium leading-none text-zinc-900">排行</h1>
-      </div>
+      <PageHeader eyebrow="JM · 榜单" title="排行" description="按分类浏览最新、热门与高人气作品。" />
       <div className="font-mono text-[11px] tracking-wide text-zinc-500">分类与排行 · {header}</div>
 
-      <div className="rounded-lg bg-white p-4">
+      <div className="rounded-lg bg-surface p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">分类</div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -311,8 +309,19 @@ export default function CategoryRankPage(props: {
           })}
         </div>
         {categoryErrorText ? (
-          <div className="mt-3 rounded-md border border-zinc-200 bg-white p-2 text-sm text-red-600">
-            {categoryErrorText}
+          <div
+            role="alert"
+            className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            <span className="min-w-0 flex-1">{categoryErrorText}</span>
+            <button
+              type="button"
+              className="h-8 rounded-pill border border-red-200 bg-white px-3 text-xs font-medium hover:bg-red-100 disabled:opacity-60"
+              onClick={() => void mutateCategories()}
+              disabled={categoryValidating}
+            >
+              重试
+            </button>
           </div>
         ) : null}
         {categoryValidating && categories.length === 0 ? (
@@ -341,9 +350,7 @@ export default function CategoryRankPage(props: {
               </div>
             ))}
             {blocks.length === 0 ? (
-              <div className="rounded-md border border-dashed border-zinc-200 p-3 text-center text-sm text-zinc-500">
-                暂无分类标签
-              </div>
+              <EmptyState compact title="暂无分类标签" description="分类信息加载后可在这里快速检索。" />
             ) : null}
           </div>
         ) : (
@@ -412,8 +419,19 @@ export default function CategoryRankPage(props: {
             </div>
 
             {searchErrorText ? (
-              <div className="mt-3 rounded-md border border-zinc-200 bg-white p-2 text-sm text-red-600">
-                {searchErrorText}
+              <div
+                role="alert"
+                className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              >
+                <span className="min-w-0 flex-1">{searchErrorText}</span>
+                <button
+                  type="button"
+                  className="h-8 rounded-pill border border-red-200 bg-white px-3 text-xs font-medium hover:bg-red-100 disabled:opacity-60"
+                  onClick={() => void mutateSearch()}
+                  disabled={searchValidating}
+                >
+                  重试
+                </button>
               </div>
             ) : null}
 
@@ -426,9 +444,7 @@ export default function CategoryRankPage(props: {
             {viewMode === "card" ? (
               <div className="mt-3">
                 {list.length === 0 && !searchLoading ? (
-                  <div className="rounded-md border border-dashed border-zinc-200 p-3 text-center text-sm text-zinc-500">
-                    暂无数据
-                  </div>
+                  <EmptyState compact title="暂无数据" description="这个分类暂时没有可展示的作品。" />
                 ) : null}
                 <div className="grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-3">
                   {list.map((item, idx) => {
@@ -489,9 +505,7 @@ export default function CategoryRankPage(props: {
             ) : (
               <div className="mt-3 flex flex-col gap-2">
                 {list.length === 0 && !searchLoading ? (
-                  <div className="rounded-md border border-dashed border-zinc-200 p-3 text-center text-sm text-zinc-500">
-                    暂无数据
-                  </div>
+                  <EmptyState compact title="暂无数据" description="这个分类暂时没有可展示的作品。" />
                 ) : null}
                 {list.map((item, idx) => {
                   const aid =

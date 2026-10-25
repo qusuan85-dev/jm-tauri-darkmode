@@ -361,7 +361,46 @@ test("已缓存页列出缓存的本子（封面/标题/占用），并能删除
   await expect(page.getByText(/已存 2 话/)).toBeVisible();
   await shot(page, "cached-page");
 
-  await page.getByRole("button", { name: "删除" }).first().click();
+  const filter = page.getByPlaceholder("按标题、作者或 AID 筛选");
+  await filter.fill("作者A");
+  await expect(page.getByText("缓存的本子A")).toBeVisible();
+  await expect(page.getByText("AID 90002")).toHaveCount(0);
+  await expect(page.getByText(/筛选出 1 个/)).toBeVisible();
+  await filter.fill("");
+  await expect(page.getByText("AID 90002")).toBeVisible();
+
+  const deleteButton = page.getByRole("button", { name: "删除" }).first();
+  await deleteButton.click();
+  const dialog = page.getByRole("dialog", { name: "确认删除缓存" });
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.body.style.overflow))
+    .toBe("hidden");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(deleteButton).toBeFocused();
+  await expect
+    .poll(() => page.evaluate(() => document.body.style.overflow))
+    .toBe("");
+
+  await deleteButton.click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(deleteButton).toBeFocused();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        ((window as any).__mockInvokeCalls as Array<{ cmd: string }>).filter(
+          (call) => call.cmd === "api_read_cache_remove",
+        ).length,
+      ),
+    )
+    .toBe(0);
+
+  await deleteButton.click();
+  await expect(dialog).toBeVisible();
+  await page.getByRole("button", { name: "确认删除", exact: true }).click();
 
   await expect(page.getByText(/已缓存 · 1 个本子/)).toBeVisible();
   await expect
@@ -372,6 +411,62 @@ test("已缓存页列出缓存的本子（封面/标题/占用），并能删除
       }),
     )
     .toEqual(["90001"]);
+});
+
+test("分类排行末页条目较少时仍使用完整每页数量计算总页数", async ({ page }) => {
+  const items = Array.from({ length: 140 }, (_, index) => ({
+    id: String(70001 + index),
+    name: `Category Item ${String(index + 1).padStart(3, "0")}`,
+    author: "Category Author",
+  }));
+  await installTauriMock(page, {
+    categories: [{ id: "1", name: "同人", slug: "doujin", total: items.length }],
+    categorySearchItemsBySlug: { doujin: items },
+    categoryPageSize: 60,
+  });
+
+  await page.goto("/#/home/category_rank");
+  await page.getByRole("button", { name: "同人", exact: true }).click();
+
+  await expect(page.getByText("页 1/3", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前页 60 条", { exact: true })).toBeVisible();
+
+  const jumpInput = page.locator('input[type="number"]');
+  await jumpInput.fill("3");
+  await page.getByRole("button", { name: "跳转", exact: true }).click();
+
+  await expect(page.getByText("页 3/3", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前页 20 条", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "下一页", exact: true })).toBeDisabled();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        ((window as any).__mockInvokeCalls as Array<{ cmd: string; args?: { page?: string } }>)
+          .filter((call) => call.cmd === "api_category_search")
+          .map((call) => String(call.args?.page)),
+      ),
+    )
+    .toContain("3");
+});
+
+test("分类搜索失败时显示错误，重试后恢复结果", async ({ page }) => {
+  await installTauriMock(page, {
+    categories: [{ id: "1", name: "同人", slug: "doujin", total: 1 }],
+    categorySearchItemsBySlug: {
+      doujin: [{ id: "71001", name: "Retry Category Item", author: "Retry Author" }],
+    },
+    categorySearchFailuresBySlug: { doujin: 1 },
+  });
+
+  await page.goto("/#/home/category_rank");
+  await page.getByRole("button", { name: "同人", exact: true }).click();
+
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("category search failed (mock)");
+  await alert.getByRole("button", { name: "重试", exact: true }).click();
+
+  await expect(page.getByText("Retry Category Item", { exact: true })).toBeVisible();
+  await expect(alert).toHaveCount(0);
 });
 
 test("未收藏的本子可以收藏到指定收藏夹", async ({ page }) => {
@@ -788,6 +883,32 @@ test("启动时自动登录，不需要先进入书架或签到页", async ({ pa
     .toBe(true);
 });
 
+test("已有有效会话启动时按开关自动签到一次", async ({ page }) => {
+  await installTauriMock(page, { dailySignedToday: false });
+  await page.addInitScript(() => {
+    localStorage.setItem("jm_auto_sign", "1");
+  });
+
+  await page.goto("/#/home/home");
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (window as any).__mockInvokeCalls as Array<{ cmd: string; args: any }>;
+        return {
+          daily: calls.filter((call) => call.cmd === "api_daily").length,
+          checks: calls
+            .filter((call) => call.cmd === "api_daily_check")
+            .map((call) => ({
+              userId: call.args?.userId,
+              dailyId: String(call.args?.dailyId ?? ""),
+            })),
+        };
+      }),
+    )
+    .toEqual({ daily: 1, checks: [{ userId: "10001", dailyId: "72" }] });
+});
+
 test("没有保存凭据时进入签到页不会乱打接口，只提示需要登录", async ({ page }) => {
   await installTauriMock(page, { guestSession: true });
 
@@ -861,8 +982,8 @@ test("没有保存密码时，登录态丢失仍要求手动登录", async ({ pa
   await page.goto("/#/login");
 
   // 停在登录页，且没有发起任何 login 调用
-  // （页面上有两个「登录」：顶部 tab 和提交按钮，取提交按钮那个）
-  await expect(page.getByRole("button", { name: "登录", exact: true }).nth(1)).toBeVisible();
+  // 「登录」标签现在是 tab，表单内唯一同名 button 才是提交按钮。
+  await expect(page.locator("form").getByRole("button", { name: "登录", exact: true })).toBeVisible();
   await expect(page.getByLabel("用户名")).toBeVisible();
   await expect
     .poll(() =>

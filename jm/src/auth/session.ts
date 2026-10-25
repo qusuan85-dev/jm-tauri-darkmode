@@ -1,3 +1,5 @@
+import { readStorage, removeStorage, writeStorage } from "../utils/storage";
+
 export type ApiUserInfo = {
   uid: unknown;
   username: string;
@@ -48,7 +50,7 @@ export function isAccountSession(value: unknown): value is Session {
 
 export function loadSession(): Session | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = readStorage(SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!isUsableSession(parsed)) return null;
@@ -60,13 +62,13 @@ export function loadSession(): Session | null {
 
 export function saveSession(session: Session): void {
   try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    writeStorage(SESSION_KEY, JSON.stringify(session));
   } catch {
     // ignore persistence errors
   }
 }
 
 export function clearSession(): void {
-  localStorage.removeItem(SESSION_KEY);
+  removeStorage(SESSION_KEY);
 }
 

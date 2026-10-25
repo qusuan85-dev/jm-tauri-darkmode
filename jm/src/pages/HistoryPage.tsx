@@ -8,6 +8,7 @@ import ListViewToggle from "../components/ListViewToggle";
 import ShelfTabs from "../components/ShelfTabs";
 import Loading from "../components/Loading";
 import { getImgBase } from "../config/endpoints";
+import { usePersistedViewMode } from "../hooks/usePersistedViewMode";
 import { getAllReadProgress, getReadProgress } from "../reading/progress";
 import type { ReadProgress } from "../reading/progress";
 import { useToast } from "../components/Toast";
@@ -25,14 +26,7 @@ export default function HistoryPage(props: {
   ) => void;
 }) {
   const viewKey = "jm_view_history";
-  const [viewMode, setViewMode] = useState<"list" | "card">(() => {
-    try {
-      const v = localStorage.getItem(viewKey);
-      return v === "card" ? "card" : "list";
-    } catch {
-      return "list";
-    }
-  });
+  const [viewMode, setViewMode] = usePersistedViewMode(viewKey);
   const [historyPage, setHistoryPage] = useState(1);
   const [jumpValue, setJumpValue] = useState("1");
   const { showToast } = useToast();
@@ -105,14 +99,6 @@ export default function HistoryPage(props: {
   useEffect(() => {
     setJumpValue(String(historyPage));
   }, [historyPage]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(viewKey, viewMode);
-    } catch {
-      // ignore
-    }
-  }, [viewMode]);
 
   const apiHistoryList: any[] = Array.isArray(historyData?.list) ? historyData.list : [];
   const historyList: any[] = useMemo(() => {

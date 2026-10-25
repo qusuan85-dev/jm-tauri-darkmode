@@ -11,14 +11,18 @@ import { Loader2, Play, Trash2 } from "lucide-react";
 
 import type { Session } from "../auth/session";
 import Button from "../components/Button";
+import ConfirmDialog from "../components/ConfirmDialog";
 import CoverImage from "../components/CoverImage";
+import EmptyState from "../components/EmptyState";
 import ListViewToggle from "../components/ListViewToggle";
 import ShelfTabs from "../components/ShelfTabs";
 import Loading from "../components/Loading";
 import { useToast } from "../components/Toast";
 import { refreshCachedAlbums } from "../cache/cachedAlbums";
 import { getImgBase } from "../config/endpoints";
+import { usePersistedViewMode } from "../hooks/usePersistedViewMode";
 import { getReadProgress } from "../reading/progress";
+import { readStorage, writeStorage } from "../utils/storage";
 
 type CachedListItem = {
   aid?: string | number;
@@ -114,44 +118,24 @@ export default function CachedPage(props: {
     startPage?: number,
   ) => void;
 }) {
-  const [viewMode, setViewMode] = useState<"list" | "card">(() => {
-    try {
-      return localStorage.getItem(viewKey) === "card" ? "card" : "list";
-    } catch {
-      return "list";
-    }
-  });
+  const [viewMode, setViewMode] = usePersistedViewMode(viewKey);
   const [sortMode, setSortMode] = useState<CachedSort>(() => {
-    try {
-      const v = localStorage.getItem(sortKey);
-      return v === "size" || v === "title" ? v : "newest";
-    } catch {
-      return "newest";
-    }
+    const v = readStorage(sortKey);
+    return v === "size" || v === "title" ? v : "newest";
   });
   const [rows, setRows] = useState<CachedRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
+  const [pendingDelete, setPendingDelete] = useState<CachedRow | null>(null);
   const [openReaderLoading, setOpenReaderLoading] = useState<Record<string, boolean>>({});
   const mounted = useRef(true);
+  const loadIdRef = useRef(0);
   const { showToast } = useToast();
 
   useEffect(() => {
-    try {
-      localStorage.setItem(viewKey, viewMode);
-    } catch {
-      // ignore
-    }
-  }, [viewMode]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(sortKey, sortMode);
-    } catch {
-      // ignore
-    }
+    writeStorage(sortKey, sortMode);
   }, [sortMode]);
 
   useEffect(() => {
@@ -162,6 +146,8 @@ export default function CachedPage(props: {
   }, []);
 
   const load = useCallback(async () => {
+    const loadId = ++loadIdRef.current;
+    setLoading(true);
     setError("");
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -191,11 +177,11 @@ export default function CachedPage(props: {
         const offlineAuthor = toText(meta?.album?.author).trim();
         let title = offlineTitle;
         let author = offlineAuthor;
-        if (!title) {
+        if (!title || !author) {
           const learned = titleCache.get(aid);
           if (learned) {
-            title = learned.title;
-            author = learned.author;
+            title = title || learned.title;
+            author = author || learned.author;
           }
         }
         return {
@@ -212,12 +198,12 @@ export default function CachedPage(props: {
         };
       });
 
-      if (!mounted.current) return;
+      if (!mounted.current || loadId !== loadIdRef.current) return;
       setRows(built);
 
       // Best effort: fill in titles the cache does not know about. Failures are
       // expected offline and simply leave the AID as the label.
-      const missing = built.filter((row) => !row.title);
+      const missing = built.filter((row) => !row.title || !row.author);
       if (missing.length) {
         const learned = await mapLimited(missing, 4, async (row) => {
           try {
@@ -226,32 +212,39 @@ export default function CachedPage(props: {
               cookies: props.session.cookies,
             });
             const title = toText(album?.name).trim();
-            if (!title) return null;
-            const entry = { title, author: toText(album?.author).trim() };
+            const author = toText(album?.author).trim();
+            if (!title && !author) return null;
+            const entry = { title, author };
             titleCache.set(row.aid, entry);
             return { aid: row.aid, ...entry };
           } catch {
             return null;
           }
         });
-        if (!mounted.current) return;
+        if (!mounted.current || loadId !== loadIdRef.current) return;
         const found = learned.filter((v): v is { aid: string; title: string; author: string } => !!v);
         if (found.length) {
           const byAid = new Map(found.map((v) => [v.aid, v]));
           setRows((prev) =>
             prev.map((row) => {
               const hit = byAid.get(row.aid);
-              return hit ? { ...row, title: hit.title, author: hit.author } : row;
+              return hit
+                ? {
+                    ...row,
+                    title: hit.title || row.title,
+                    author: hit.author || row.author,
+                  }
+                : row;
             }),
           );
         }
       }
     } catch (e) {
-      if (!mounted.current) return;
+      if (!mounted.current || loadId !== loadIdRef.current) return;
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
     } finally {
-      if (mounted.current) setLoading(false);
+      if (mounted.current && loadId === loadIdRef.current) setLoading(false);
     }
   }, [props.session.cookies]);
 
@@ -264,7 +257,9 @@ export default function CachedPage(props: {
     const filtered = keyword
       ? rows.filter(
           (row) =>
-            row.title.toLowerCase().includes(keyword) || row.aid.toLowerCase().includes(keyword),
+            row.title.toLowerCase().includes(keyword) ||
+            row.author.toLowerCase().includes(keyword) ||
+            row.aid.toLowerCase().includes(keyword),
         )
       : rows;
     const sorted = [...filtered];
@@ -298,21 +293,28 @@ export default function CachedPage(props: {
     }
   };
 
-  const remove = async (row: CachedRow) => {
+  const confirmDelete = async () => {
+    const row = pendingDelete;
+    if (!row || deleting[row.aid]) return;
     setDeleting((prev) => ({ ...prev, [row.aid]: true }));
+    let deleted = false;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("api_read_cache_remove", { aid: row.aid });
       setRows((prev) => prev.filter((r) => r.aid !== row.aid));
       void refreshCachedAlbums();
       showToast({ ok: true, text: `已删除缓存：${row.title || row.aid}` });
+      deleted = true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       showToast({ ok: false, text: `删除缓存失败：${msg}` });
     } finally {
       setDeleting((prev) => ({ ...prev, [row.aid]: false }));
+      if (deleted) setPendingDelete(null);
     }
   };
+
+  const pendingDeleteBusy = pendingDelete ? !!deleting[pendingDelete.aid] : false;
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -320,13 +322,14 @@ export default function CachedPage(props: {
       <div className="font-mono text-[11px] tracking-wide text-zinc-500">
         已缓存 · {rows.length} 个本子 · 共 {formatBytes(totalBytes)}
         {visible.length !== rows.length ? ` · 筛选出 ${visible.length} 个` : ""}
+        {loading && rows.length > 0 ? " · 正在刷新…" : ""}
       </div>
 
       <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <input
             className="h-9 min-w-[160px] flex-1 rounded-pill border border-zinc-300 px-3.5 text-[13px]"
-            placeholder="按标题或 AID 筛选"
+            placeholder="按标题、作者或 AID 筛选"
             value={filter}
             onChange={(e) => setFilter(e.currentTarget.value)}
           />
@@ -350,26 +353,69 @@ export default function CachedPage(props: {
           <ListViewToggle value={viewMode} onChange={setViewMode} />
         </div>
 
-        {error ? (
-          <div className="mt-3 rounded-md border border-zinc-200 bg-white p-2 text-sm text-red-600">
-            {error}
+        {error && rows.length > 0 ? (
+          <div
+            role="alert"
+            className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            <span className="min-w-0 flex-1">{error}</span>
+            <button
+              type="button"
+              className="h-8 rounded-pill border border-red-200 bg-white px-3 text-xs font-medium hover:bg-red-100 disabled:opacity-60"
+              onClick={() => void load()}
+              disabled={loading}
+            >
+              重试
+            </button>
           </div>
         ) : null}
 
         {loading && rows.length === 0 ? (
           <Loading />
+        ) : error && rows.length === 0 ? (
+          <div className="mt-4">
+            <EmptyState
+              title="无法读取缓存"
+              description={error}
+              action={
+                <button
+                  type="button"
+                  className="h-8 rounded-pill border border-zinc-300 bg-surface px-3 text-xs font-medium hover:bg-zinc-50"
+                  onClick={() => void load()}
+                >
+                  重试
+                </button>
+              }
+            />
+          </div>
         ) : visible.length === 0 ? (
-          <div className="mt-4 rounded-md border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
-            {rows.length === 0
-              ? "还没有缓存的本子。在漫画详情页点「一键缓存」，或在阅读时让它自动缓存即可。"
-              : "没有符合筛选条件的本子。"}
+          <div className="mt-4">
+            <EmptyState
+              title={rows.length === 0 ? "还没有缓存的本子" : "没有符合筛选条件的本子"}
+              description={
+                rows.length === 0
+                  ? "在漫画详情页点「一键缓存」，或在阅读时让它自动缓存即可。"
+                  : "换一个标题、作者或 AID 再试试。"
+              }
+              action={
+                rows.length > 0 ? (
+                  <button
+                    type="button"
+                    className="h-8 rounded-pill border border-zinc-300 bg-surface px-3 text-xs font-medium hover:bg-zinc-50"
+                    onClick={() => setFilter("")}
+                  >
+                    清除筛选
+                  </button>
+                ) : undefined
+              }
+            />
           </div>
         ) : viewMode === "card" ? (
           <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
             {visible.map((row) => (
               <div
                 key={row.aid}
-                className="flex h-full flex-col overflow-hidden rounded-md border border-zinc-200 bg-white"
+                className="flex h-full flex-col overflow-hidden rounded-md border border-zinc-200 bg-surface"
               >
                 <button
                   type="button"
@@ -399,15 +445,15 @@ export default function CachedPage(props: {
                   </div>
                   <div className="mt-auto flex items-center gap-2">
                     <Button
-                      className="h-7 flex-1 rounded-md border border-zinc-200 bg-white text-xs text-zinc-900 hover:bg-zinc-50"
+                      className="h-7 flex-1 rounded-md border border-zinc-200 bg-surface text-xs text-zinc-900 hover:bg-zinc-50"
                       onClick={() => void openReader(row)}
                       loading={!!openReaderLoading[row.aid]}
                     >
                       阅读
                     </Button>
                     <Button
-                      className="h-7 flex-1 rounded-md border border-zinc-200 bg-white text-xs text-red-600 hover:bg-zinc-50"
-                      onClick={() => void remove(row)}
+                      className="h-7 flex-1 rounded-md border border-zinc-200 bg-surface text-xs text-red-600 hover:bg-zinc-50"
+                      onClick={() => setPendingDelete(row)}
                       loading={!!deleting[row.aid]}
                     >
                       删除
@@ -422,7 +468,7 @@ export default function CachedPage(props: {
             {visible.map((row) => (
               <div
                 key={row.aid}
-                className="flex min-w-0 items-center gap-3 overflow-hidden rounded-md border border-zinc-200 bg-white px-3 py-2"
+                className="flex min-w-0 items-center gap-3 overflow-hidden rounded-md border border-zinc-200 bg-surface px-3 py-2"
               >
                 <div className="relative h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
                   <CoverImage
@@ -451,7 +497,7 @@ export default function CachedPage(props: {
                 <div className="flex flex-none items-center gap-2">
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-zinc-200 bg-surface px-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
                     onClick={() => void openReader(row)}
                     disabled={!!openReaderLoading[row.aid]}
                   >
@@ -464,8 +510,8 @@ export default function CachedPage(props: {
                   </button>
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-zinc-200 bg-white px-2 text-sm text-red-600 hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={() => void remove(row)}
+                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-zinc-200 bg-surface px-2 text-sm text-red-600 hover:bg-zinc-50 disabled:opacity-60"
+                    onClick={() => setPendingDelete(row)}
                     disabled={!!deleting[row.aid]}
                   >
                     {deleting[row.aid] ? (
@@ -481,6 +527,20 @@ export default function CachedPage(props: {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="确认删除缓存"
+        description={
+          pendingDelete
+            ? `将删除「${pendingDelete.title || pendingDelete.aid}」的本地缓存。阅读进度不会被清除。`
+            : undefined
+        }
+        confirmLabel="确认删除"
+        danger
+        busy={pendingDeleteBusy}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }

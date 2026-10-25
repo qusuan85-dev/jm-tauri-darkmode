@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { AlertTriangle, Info, RefreshCw } from "lucide-react";
 import type { Session } from "../auth/session";
 import { getImgBase } from "../config/endpoints";
@@ -1057,6 +1058,7 @@ const ReadingChapterSegment = memo(function ReadingChapterSegment(props: {
   showToast: (payload: { ok: boolean; text: string }) => void;
   onActivity: (activity: ReadingSegmentActivity) => void;
   onRegisterReload: (chapterId: string, reload: (() => Promise<void>) | null) => void;
+  onRegisterReadKey: (chapterId: string, readKey: string | null) => void;
   sectionRef: (chapterId: string, node: HTMLElement | null) => void;
 }) {
   const chapterId = toNavigationId(props.chapterItem.id);
@@ -1110,9 +1112,12 @@ const ReadingChapterSegment = memo(function ReadingChapterSegment(props: {
   }, [chapterId, loadChapter, props.onRegisterReload]);
 
   useEffect(() => {
-    readKeyRef.current = makeReadKey(props.aid, chapterId);
+    const readKey = makeReadKey(props.aid, chapterId);
+    readKeyRef.current = readKey;
+    props.onRegisterReadKey(chapterId, readKey);
     leavingRef.current = false;
     return () => {
+      props.onRegisterReadKey(chapterId, null);
       leavingRef.current = true;
       genRef.current += 1;
       resetInflight();
@@ -1120,17 +1125,11 @@ const ReadingChapterSegment = memo(function ReadingChapterSegment(props: {
         if (url.startsWith("blob:")) URL.revokeObjectURL(url);
       }
       objectUrlsByIndex.current.clear();
-      const readKey = readKeyRef.current;
-      void (async () => {
-        try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("api_read_cancel", { readKey });
-        } catch {
-          // ignore segment cancellation failures
-        }
-      })();
+      void invoke("api_read_cancel", { readKey }).catch(() => {
+        // ignore segment cancellation failures
+      });
     };
-  }, [chapterId, props.aid, resetInflight]);
+  }, [chapterId, props.aid, props.onRegisterReadKey, resetInflight]);
 
   const handleWindowChange = useCallback((start: number, end: number) => {
     setVisibleWindow((prev) =>
@@ -1295,6 +1294,7 @@ export default function ReadingPage(props: {
   const leavingRef = useRef(false);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const reloadRefs = useRef(new Map<string, () => Promise<void>>());
+  const readKeysRef = useRef(new Map<string, string>());
   const pendingAnchorRef = useRef<{ chapterId: string; top: number } | null>(null);
   const pendingScrollChapterRef = useRef<string | null>(null);
   const [headerVisible, setHeaderVisible] = useState(false);
@@ -1466,6 +1466,21 @@ export default function ReadingPage(props: {
     [],
   );
 
+  const handleRegisterReadKey = useCallback((chapterId: string, readKey: string | null) => {
+    if (readKey) readKeysRef.current.set(chapterId, readKey);
+    else readKeysRef.current.delete(chapterId);
+  }, []);
+
+  const cancelRegisteredReads = useCallback(() => {
+    const readKeys = [...readKeysRef.current.values()];
+    readKeysRef.current.clear();
+    for (const readKey of readKeys) {
+      void invoke("api_read_cancel", { readKey }).catch(() => {
+        // ignore segment cancellation failures
+      });
+    }
+  }, []);
+
   const handleSegmentActivity = useCallback(
     (activity: ReadingSegmentActivity) => {
       setActiveActivity((prev) =>
@@ -1568,13 +1583,15 @@ export default function ReadingPage(props: {
 
   const handleGoHome = useCallback(() => {
     leavingRef.current = true;
+    cancelRegisteredReads();
     props.onGoHome();
-  }, [props.onGoHome]);
+  }, [cancelRegisteredReads, props.onGoHome]);
 
   const handleBack = useCallback(() => {
     leavingRef.current = true;
+    cancelRegisteredReads();
     props.onBack();
-  }, [props.onBack]);
+  }, [cancelRegisteredReads, props.onBack]);
 
   useEffect(() => {
     const element = rootRef.current;
@@ -1721,6 +1738,7 @@ export default function ReadingPage(props: {
               showToast={showToast}
               onActivity={handleSegmentActivity}
               onRegisterReload={handleRegisterReload}
+              onRegisterReadKey={handleRegisterReadKey}
               sectionRef={handleSectionRef}
             />
           );

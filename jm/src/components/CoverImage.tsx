@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ImageOff } from "lucide-react";
 
 import { isCachedAid, useCachedAlbums } from "../cache/cachedAlbums";
 
@@ -46,10 +47,15 @@ async function fetchCover(src: string): Promise<string> {
 export default function CoverImage(props: CoverImageProps) {
   const source = props.src?.trim() ?? "";
   const cached = useCachedAlbums();
+  const [failed, setFailed] = useState(false);
   const [resolved, setResolved] = useState<{ source: string; url: string | null }>(() => ({
     source,
     url: immediateCover(source),
   }));
+
+  useEffect(() => {
+    setFailed(false);
+  }, [source]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,19 +89,40 @@ export default function CoverImage(props: CoverImageProps) {
 
   const src = resolved.source === source ? resolved.url : immediateCover(source);
   if (!src) {
-    // Still show the badge on a missing cover so the state stays visible.
-    return badge ? <>{badge}</> : <div className={props.className} />;
+    return (
+      <>
+        <div
+          className={`${props.className ?? ""} flex items-center justify-center bg-zinc-100 text-zinc-400`}
+          role="img"
+          aria-label={props.alt ? `${props.alt} 暂无封面` : "暂无封面"}
+        >
+          <ImageOff className="h-5 w-5" aria-hidden="true" />
+        </div>
+        {badge}
+      </>
+    );
   }
 
   return (
     <>
-      <img
-        src={src}
-        alt={props.alt ?? ""}
-        className={props.className}
-        loading="lazy"
-        decoding="async"
-      />
+      {failed ? (
+        <div
+          className={`${props.className ?? ""} flex items-center justify-center bg-zinc-100 text-zinc-400`}
+          role="img"
+          aria-label={props.alt ? `${props.alt} 封面加载失败` : "封面加载失败"}
+        >
+          <ImageOff className="h-5 w-5" aria-hidden="true" />
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={props.alt ?? ""}
+          className={`${props.className ?? ""} bg-zinc-100`}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+      )}
       {badge}
     </>
   );

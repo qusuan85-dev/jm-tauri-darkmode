@@ -42,3 +42,5 @@ jm/src-tauri/gen/android/app/src/main/jniLibs
 # Local build caches used by sandboxed APK builds
 jm/.gradle-home
 jm/.tmp-build
+jm/src-tauri/.gradle-home
+jm/src-tauri/.tmp-build

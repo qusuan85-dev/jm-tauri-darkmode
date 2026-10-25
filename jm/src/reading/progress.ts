@@ -1,3 +1,5 @@
+import { readJsonStorage, writeJsonStorage } from "../utils/storage";
+
 export type ReadProgress = {
   aid: string;
   source: "jm";
@@ -17,17 +19,13 @@ function makeKey(source: ReadProgress["source"], aid: string): string {
 }
 
 function loadAll(): Record<string, ReadProgress> {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, ReadProgress>;
-  } catch {
-    return {};
-  }
+  const parsed = readJsonStorage<unknown>(KEY);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  return parsed as Record<string, ReadProgress>;
 }
 
-function saveAll(all: Record<string, ReadProgress>): void {
-  localStorage.setItem(KEY, JSON.stringify(all));
+function saveAll(all: Record<string, ReadProgress>): boolean {
+  return writeJsonStorage(KEY, all);
 }
 
 export function getReadProgress(source: ReadProgress["source"], aid: string): ReadProgress | null {
@@ -70,26 +68,26 @@ export function getAllReadProgress(): ReadProgress[] {
   return Object.values(loadAll()).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
-export function upsertReadProgress(entry: ReadProgress): void {
+export function upsertReadProgress(entry: ReadProgress): boolean {
   const all = loadAll();
   all[makeKey(entry.source, entry.aid)] = entry;
-  saveAll(all);
+  return saveAll(all);
 }
 
-export function clearReadProgress(aid: string): void {
+export function clearReadProgress(aid: string): boolean {
   const all = loadAll();
   delete all[makeKey("jm", aid)];
   // Purge any row an older build left behind under the removed source, so the
   // detritus does not linger in the user's history forever.
   delete all[`eh:${aid}`];
-  saveAll(all);
+  return saveAll(all);
 }
 
-export function clearReadProgressAliases(aids: string[]): void {
+export function clearReadProgressAliases(aids: string[]): boolean {
   const all = loadAll();
   for (const aid of new Set(aids.map((value) => value.trim()).filter(Boolean))) {
     delete all[makeKey("jm", aid)];
     delete all[`eh:${aid}`];
   }
-  saveAll(all);
+  return saveAll(all);
 }

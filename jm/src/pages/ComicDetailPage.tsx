@@ -536,7 +536,11 @@ export default function ComicDetailPage(props: {
 
   const clearProgress = useCallback(() => {
     try {
-      clearReadProgressAliases(readingWork.aliases);
+      const cleared = clearReadProgressAliases(readingWork.aliases);
+      if (!cleared) {
+        showToast({ ok: false, text: "清除失败（存储空间不可用）" });
+        return;
+      }
       setProgress(null);
       void (async () => {
         try {

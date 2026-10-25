@@ -16,6 +16,13 @@ type MockSearchItem = {
   author: string;
 };
 
+type MockCategory = {
+  id: string;
+  name: string;
+  slug: string;
+  total?: number;
+};
+
 type MockLatestItem = Record<string, unknown>;
 
 type MockAlbumChapter = {
@@ -42,6 +49,18 @@ type MockOptions = {
   albumIsFavorite?: boolean;
   cachedAlbums?: MockCachedAlbum[];
   searchItems?: MockSearchItem[];
+  /** Per-query search results; falls back to `searchItems`. */
+  searchItemsByQuery?: Record<string, MockSearchItem[]>;
+  /** Artificial latency per query, used to exercise out-of-order responses. */
+  searchDelayByQuery?: Record<string, number>;
+  /** Categories returned by `api_categories`. */
+  categories?: MockCategory[];
+  /** Per-category results returned by `api_category_search`. */
+  categorySearchItemsBySlug?: Record<string, MockSearchItem[]>;
+  /** Number of initial failures per category slug, for retry coverage. */
+  categorySearchFailuresBySlug?: Record<string, number>;
+  /** Number of category results returned per request (default: all). */
+  categoryPageSize?: number;
   latestItems?: MockLatestItem[];
   promoteBlocks?: unknown[];
   albumId?: string;
@@ -92,6 +111,11 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
     const favoriteFolders = Array.isArray(payload.favoriteFolders) ? payload.favoriteFolders : [];
     const cachedAlbums = Array.isArray(payload.cachedAlbums) ? payload.cachedAlbums : [];
     const searchItems = Array.isArray(payload.searchItems) ? payload.searchItems : [];
+    const searchItemsByQuery = payload.searchItemsByQuery ?? {};
+    const searchDelayByQuery = payload.searchDelayByQuery ?? {};
+    const categories = Array.isArray(payload.categories) ? payload.categories : [];
+    const categorySearchItemsBySlug = payload.categorySearchItemsBySlug ?? {};
+    const categorySearchFailuresBySlug = { ...(payload.categorySearchFailuresBySlug ?? {}) };
     const latestItems = Array.isArray(payload.latestItems) ? payload.latestItems : [];
     const promoteBlocks = Array.isArray(payload.promoteBlocks) ? payload.promoteBlocks : [];
     const albumSeries = Array.isArray(payload.albumSeries) ? payload.albumSeries : [];
@@ -279,14 +303,46 @@ export async function installTauriMock(page: Page, options: MockOptions = {}) {
         case "api_search": {
           // The real search endpoint is paged server-side; mirror that so the
           // frontend's batching / infinite scroll sees distinct pages.
+          const searchQuery = String(args?.searchQuery ?? "");
+          const delay = Number(searchDelayByQuery[searchQuery] ?? 0);
+          if (Number.isFinite(delay) && delay > 0) await sleep(delay);
+          const queryItems = Array.isArray(searchItemsByQuery[searchQuery])
+            ? searchItemsByQuery[searchQuery]
+            : searchItems;
           const page = Math.max(1, Number(args?.page ?? 1) || 1);
           const perPage =
             typeof payload.searchPageSize === "number" && payload.searchPageSize > 0
               ? payload.searchPageSize
-              : searchItems.length || 1;
+              : queryItems.length || 1;
           return {
-            total: searchItems.length,
-            content: searchItems.slice((page - 1) * perPage, page * perPage),
+            total: queryItems.length,
+            content: queryItems.slice((page - 1) * perPage, page * perPage),
+          };
+        }
+        case "api_categories": {
+          return {
+            categories,
+            blocks: [],
+          };
+        }
+        case "api_category_search": {
+          const category = String(args?.category ?? "");
+          const remainingFailures = Number(categorySearchFailuresBySlug[category] ?? 0);
+          if (Number.isFinite(remainingFailures) && remainingFailures > 0) {
+            categorySearchFailuresBySlug[category] = remainingFailures - 1;
+            throw new Error("category search failed (mock)");
+          }
+          const items = Array.isArray(categorySearchItemsBySlug[category])
+            ? categorySearchItemsBySlug[category]
+            : [];
+          const page = Math.max(1, Number(args?.page ?? 1) || 1);
+          const perPage =
+            typeof payload.categoryPageSize === "number" && payload.categoryPageSize > 0
+              ? payload.categoryPageSize
+              : items.length || 1;
+          return {
+            total: items.length,
+            content: items.slice((page - 1) * perPage, page * perPage),
           };
         }
         case "api_cover_cache": {

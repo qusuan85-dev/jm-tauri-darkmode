@@ -1,14 +1,18 @@
-import type { ButtonHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { Loader2 } from "lucide-react";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   loading?: boolean;
 };
 
-export default function Button({ loading, disabled, children, className, ...rest }: ButtonProps) {
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { loading, disabled, children, className, ...rest },
+  ref,
+) {
   return (
     <button
       {...rest}
+      ref={ref}
       type={rest.type ?? "button"}
       disabled={disabled || loading}
       className={[
@@ -21,4 +25,6 @@ export default function Button({ loading, disabled, children, className, ...rest
       {children}
     </button>
   );
-}
+});
+
+export default Button;

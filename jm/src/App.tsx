@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   HashRouter,
   Navigate,
@@ -11,24 +11,29 @@ import {
 
 import type { LoginResult, Session } from "./auth/session";
 import { clearSession, isAccountSession, loadSession, saveSession } from "./auth/session";
-import ComicDetailPage from "./pages/ComicDetailPage";
-import ReadingPage from "./pages/ReadingPage";
-import LoginPage from "./pages/LoginPage";
+import Loading from "./components/Loading";
 import SideNav from "./components/SideNav";
+import StartupSplash from "./components/StartupSplash";
 import { ToastProvider, useToast } from "./components/Toast";
 import HomePage from "./pages/HomePage";
-import FavoritesPage from "./pages/FavoritesPage";
-import CachedPage from "./pages/CachedPage";
-import DailyPage from "./pages/DailyPage";
-import CategoryRankPage from "./pages/CategoryRankPage";
-import HistoryPage from "./pages/HistoryPage";
-import SearchPage from "./pages/SearchPage";
-import SettingsPage from "./pages/SettingsPage";
 import {
   createReadingWorkFromChapters,
   normalizeReadingWork,
 } from "./reading/navigation";
 import type { ChapterNavItem, ReadingSource, ReadingTarget, ReadingWork } from "./reading/navigation";
+import { readStorage, writeStorage } from "./utils/storage";
+import { decodeUtf8Base64 } from "./utils/utf8Base64";
+
+const ComicDetailPage = lazy(() => import("./pages/ComicDetailPage"));
+const ReadingPage = lazy(() => import("./pages/ReadingPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const FavoritesPage = lazy(() => import("./pages/FavoritesPage"));
+const CachedPage = lazy(() => import("./pages/CachedPage"));
+const DailyPage = lazy(() => import("./pages/DailyPage"));
+const CategoryRankPage = lazy(() => import("./pages/CategoryRankPage"));
+const HistoryPage = lazy(() => import("./pages/HistoryPage"));
+const SearchPage = lazy(() => import("./pages/SearchPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
 type HomeSub =
   | "home"
@@ -98,14 +103,10 @@ function normalizeHomeSub(value?: string): HomeSub {
   }
 }
 
-function decodeUtf8Base64(s: string): string {
-  return decodeURIComponent(escape(window.atob(s)));
-}
-
 function homeTitle(sub: HomeSub) {
   switch (sub) {
     case "favorites":
-      return "收藏(在线)";
+      return "在线收藏";
     case "cached":
       return "已缓存";
     case "daily":
@@ -125,6 +126,27 @@ function homeTitle(sub: HomeSub) {
 
 // 静默补登的上限：避免接口持续报失效时无限重登刷屏
 const MAX_SILENT_LOGIN = 3;
+const SILENT_LOGIN_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(task: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    task.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function autoSignEnabled(): boolean {
+  return readStorage("jm_auto_sign") === "1";
+}
 
 function RequireSession(props: { session: Session | null; children: React.ReactElement }) {
   const location = useLocation();
@@ -139,8 +161,15 @@ function LoginRoute(props: { session: Session | null; onLoggedIn: (s: Session) =
   const location = useLocation();
   if (props.session) return <Navigate to="/home/home" replace />;
 
-  const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-  const target = from || "/home/home";
+  const from = (
+    location.state as
+      | { from?: { pathname?: string; search?: string; hash?: string } }
+      | null
+  )?.from;
+  const fromPath = from?.pathname
+    ? `${from.pathname}${from.search ?? ""}${from.hash ?? ""}`
+    : "";
+  const target = fromPath && fromPath !== "/login" ? fromPath : "/home/home";
 
   return (
     <LoginPage
@@ -176,70 +205,77 @@ function HomeLayout(props: {
   return (
     <div className="safe-area-top home-mobile-safe-bottom min-h-screen bg-zinc-100 p-4 text-zinc-900 sm:p-6">
       <div className="mx-auto flex w-full min-w-0 max-w-[900px] flex-col gap-4">
-        <div className="hidden md:flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+        <div className="hidden items-center justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-sm md:flex">
           <div className="flex flex-col">
             <div className="text-base font-semibold text-zinc-900">{homeTitle(activeSub)}</div>
             <div className="text-sm text-zinc-600">
-              {user.username} · LV{user.level} · coin {user.coin}
+              {user.username} · LV{user.level}
             </div>
+          </div>
+          <div className="rounded-pill bg-zinc-50 px-3 py-1.5 font-mono text-xs text-zinc-600">
+            {Number(user.coin).toLocaleString()} coin
           </div>
         </div>
 
         <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
           <div className="hidden md:block">
-            <SideNav
-              variant="sidebar"
-              user={{
-                username: user.username,
-                uid: user.uid,
-                level: user.level,
-                levelName: user.level_name,
-              }}
-            />
+            <div className="sticky top-6">
+              <SideNav
+                variant="sidebar"
+                user={{
+                  username: user.username,
+                  uid: user.uid,
+                  level: user.level,
+                  levelName: user.level_name,
+                }}
+              />
+            </div>
           </div>
 
           <div className="min-w-0">
-            <Routes>
-              <Route
-                path="home"
-                element={<HomeRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
-              />
-              <Route
-                path="favorites"
-                element={<FavoritesRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
-              />
-              <Route
-                path="cached"
-                element={<CachedRoute session={props.session} />}
-              />
-              <Route
-                path="daily"
-                element={
-                  <DailyPage
-                    session={props.session}
-                    onAuthExpired={props.onAuthExpired}
-                    ensureLogin={props.ensureLogin}
-                  />
-                }
-              />
-              <Route
-                path="category_rank"
-                element={<CategoryRankRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
-              />
-              <Route
-                path="history"
-                element={<HistoryRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
-              />
-              <Route
-                path="search"
-                element={<SearchRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
-              />
-              <Route
-                path="settings"
-                element={<SettingsPage session={props.session} onLogout={props.onLogout} />}
-              />
-              <Route path="" element={<Navigate to="home" replace />} />
-            </Routes>
+            <Suspense fallback={<Loading className="min-h-[45vh]" label="正在打开页面" />}>
+              <Routes>
+                <Route
+                  path="home"
+                  element={<HomeRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
+                />
+                <Route
+                  path="favorites"
+                  element={<FavoritesRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
+                />
+                <Route
+                  path="cached"
+                  element={<CachedRoute session={props.session} />}
+                />
+                <Route
+                  path="daily"
+                  element={
+                    <DailyPage
+                      session={props.session}
+                      onAuthExpired={props.onAuthExpired}
+                      ensureLogin={props.ensureLogin}
+                    />
+                  }
+                />
+                <Route
+                  path="category_rank"
+                  element={<CategoryRankRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
+                />
+                <Route
+                  path="history"
+                  element={<HistoryRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
+                />
+                <Route
+                  path="search"
+                  element={<SearchRoute session={props.session} onAuthExpired={props.onAuthExpired} />}
+                />
+                <Route
+                  path="settings"
+                  element={<SettingsPage session={props.session} onLogout={props.onLogout} />}
+                />
+                <Route path="" element={<Navigate to="home" replace />} />
+              </Routes>
+            </Suspense>
           </div>
         </div>
       </div>
@@ -339,11 +375,7 @@ function CategoryRankRoute(props: { session: Session; onAuthExpired: () => void 
       onAuthExpired={props.onAuthExpired}
       onOpenComic={openComic}
       onOpenSearch={(query) => {
-        try {
-          localStorage.setItem("jm_search_prefill", query);
-        } catch {
-          // ignore
-        }
+        writeStorage("jm_search_prefill", query);
         navigate("/home/search");
       }}
     />
@@ -412,11 +444,7 @@ function DetailRoute(props: { session: Session; onAuthExpired: () => void }) {
       }}
       onAuthExpired={props.onAuthExpired}
       onOpenSearch={(query) => {
-        try {
-          localStorage.setItem("jm_search_prefill", query);
-        } catch {
-          // ignore
-        }
+        writeStorage("jm_search_prefill", query);
         navigate("/home/search");
       }}
       onOpenReader={(target: ReadingTarget, startPage) =>
@@ -501,23 +529,25 @@ function ReadingRoute(props: { session: Session }) {
 
 function AppRoutes() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const autoSignRef = useRef<string | null>(null);
-  const autoSignPendingRef = useRef(false);
   const startupLoginTriedRef = useRef(false);
   const silentLoginCountRef = useRef(0);
   const silentLoginInFlightRef = useRef<Promise<boolean> | null>(null);
   const [startupCheckDone, setStartupCheckDone] = useState(
-    () => isAccountSession(loadSession()),
+    () => isAccountSession(session),
   );
 
   const onLoggedIn = useCallback((s: Session) => {
     silentLoginCountRef.current = 0;
+    // A fresh manual login gets one fresh automatic check-in attempt.
+    autoSignRef.current = null;
     setSession(s);
-    autoSignPendingRef.current = true;
   }, []);
 
   const onLogout = useCallback(() => {
+    autoSignRef.current = null;
     clearSession();
     clearBackendSession();
     setSession(null);
@@ -540,10 +570,10 @@ function AppRoutes() {
     let username = "";
     let password = "";
     try {
-      if (localStorage.getItem("jm_save_password") !== "1") return Promise.resolve(false);
-      if (localStorage.getItem("jm_auto_login") !== "1") return Promise.resolve(false);
-      username = localStorage.getItem("jm_login_username") ?? "";
-      const raw = localStorage.getItem("jm_login_password_b64") ?? "";
+      if (readStorage("jm_save_password") !== "1") return Promise.resolve(false);
+      if (readStorage("jm_auto_login") !== "1") return Promise.resolve(false);
+      username = readStorage("jm_login_username") ?? "";
+      const raw = readStorage("jm_login_password_b64") ?? "";
       if (raw) password = decodeUtf8Base64(raw);
     } catch {
       return Promise.resolve(false);
@@ -555,7 +585,11 @@ function AppRoutes() {
     const pending = (async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const result = await invoke<LoginResult>("login", { username, password });
+        const result = await withTimeout(
+          invoke<LoginResult>("login", { username, password }),
+          SILENT_LOGIN_TIMEOUT_MS,
+          "自动登录超时，请手动登录",
+        );
         const nextSession: Session = { ...result, savedAt: Date.now() };
         silentLoginCountRef.current = 0;
         saveSession(nextSession);
@@ -610,23 +644,13 @@ function AppRoutes() {
 
   useEffect(() => {
     if (!session) return;
-    let enabled = false;
-    try {
-      enabled = localStorage.getItem("jm_auto_sign") === "1";
-    } catch {
-      enabled = false;
-    }
-    if (!enabled) {
-      autoSignPendingRef.current = false;
-      return;
-    }
+    if (!autoSignEnabled()) return;
 
     // 游客/无效会话打不了卡，等真实登录后再由 ensureLogin 触发
     if (!isAccountSession(session)) return;
     const uid = String(session.user.uid ?? "").trim();
-    if (autoSignRef.current === uid || !autoSignPendingRef.current) return;
+    if (!uid || autoSignRef.current === uid) return;
     autoSignRef.current = uid;
-    autoSignPendingRef.current = false;
 
     let cancelled = false;
     const run = async () => {
@@ -677,12 +701,12 @@ function AppRoutes() {
 
   if (!startupCheckDone) {
     return (
-      <div
-        className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-600"
-        role="status"
-      >
-        正在自动登录…
-      </div>
+      <StartupSplash
+        onManualLogin={() => {
+          setStartupCheckDone(true);
+          navigate("/login", { replace: true });
+        }}
+      />
     );
   }
 

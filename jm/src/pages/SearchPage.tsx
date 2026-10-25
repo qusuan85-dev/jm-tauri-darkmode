@@ -5,9 +5,19 @@ import { Loader2, Search, X } from "lucide-react";
 import type { Session } from "../auth/session";
 import { isAuthExpiredError } from "../auth/errors";
 import CoverImage from "../components/CoverImage";
+import EmptyState from "../components/EmptyState";
 import ListViewToggle from "../components/ListViewToggle";
+import PageHeader from "../components/PageHeader";
+import { usePersistedViewMode } from "../hooks/usePersistedViewMode";
 import { createSearchAdapter } from "../sources/searchAdapter";
 import type { SearchAdapter } from "../sources/searchAdapter";
+import {
+  readJsonStorage,
+  readStorage,
+  removeStorage,
+  writeJsonStorage,
+  writeStorage,
+} from "../utils/storage";
 
 type SortKey = string;
 
@@ -52,66 +62,32 @@ function isSortKey(value: unknown): value is SortKey {
 }
 
 function loadSort(): SortKey {
-  try {
-    const raw = localStorage.getItem(SORT_KEY);
-    if (isSortKey(raw)) return raw;
-  } catch {
-    // ignore
-  }
+  const raw = readStorage(SORT_KEY);
+  if (isSortKey(raw)) return raw;
   return "mr";
 }
 
 function saveSort(sort: SortKey) {
-  try {
-    localStorage.setItem(SORT_KEY, sort);
-  } catch {
-    // ignore
-  }
+  writeStorage(SORT_KEY, sort);
 }
 
 function loadBatchSize(): number {
-  try {
-    const n = Number(localStorage.getItem(BATCH_KEY));
-    if (BATCH_SIZE_OPTIONS.includes(n)) return n;
-  } catch {
-    // ignore
-  }
+  const n = Number(readStorage(BATCH_KEY));
+  if (BATCH_SIZE_OPTIONS.includes(n)) return n;
   return DEFAULT_BATCH_SIZE;
 }
 
 function saveBatchSize(size: number) {
-  try {
-    localStorage.setItem(BATCH_KEY, String(size));
-  } catch {
-    // ignore
-  }
+  writeStorage(BATCH_KEY, String(size));
 }
 
 function loadHistory(): string[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter((s) => typeof s === "string" && s.trim()) : [];
-  } catch {
-    return [];
-  }
+  const arr = readJsonStorage<unknown>(HISTORY_KEY);
+  return Array.isArray(arr) ? arr.filter((s) => typeof s === "string" && s.trim()) : [];
 }
 
 function saveHistory(list: string[]) {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 30)));
-  } catch {
-    // ignore
-  }
-}
-
-function loadViewMode(): "list" | "card" {
-  try {
-    return localStorage.getItem(VIEW_KEY) === "card" ? "card" : "list";
-  } catch {
-    return "list";
-  }
+  writeJsonStorage(HISTORY_KEY, list.slice(0, 30));
 }
 
 function emptyState(): SearchState {
@@ -157,28 +133,18 @@ function normalizeState(raw: any): SearchState | null {
 
 function loadState(): SearchState | null {
   if (memoryState) return memoryState;
-  try {
-    const raw = localStorage.getItem(STATE_KEY);
-    if (!raw) return null;
-    memoryState = normalizeState(JSON.parse(raw));
-    return memoryState;
-  } catch {
-    return null;
-  }
+  const raw = readJsonStorage<unknown>(STATE_KEY);
+  memoryState = normalizeState(raw);
+  return memoryState;
 }
 
 function saveState(state: SearchState) {
   memoryState = state;
-  try {
-    if (!state.query) localStorage.removeItem(STATE_KEY);
-    else
-      localStorage.setItem(
-        STATE_KEY,
-        JSON.stringify({ ...state, items: state.items.slice(0, MAX_CACHED_ITEMS) }),
-      );
-  } catch {
-    // ignore quota / privacy errors
+  if (!state.query) {
+    removeStorage(STATE_KEY);
+    return;
   }
+  writeJsonStorage(STATE_KEY, { ...state, items: state.items.slice(0, MAX_CACHED_ITEMS) });
 }
 
 export default function SearchPage(props: {
@@ -233,17 +199,20 @@ export default function SearchPage(props: {
   const [batchSize, setBatchSize] = useState(loadBatchSize);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState("");
-  const [viewMode, setViewMode] = useState<"list" | "card">(loadViewMode);
+  const [viewMode, setViewMode] = usePersistedViewMode(VIEW_KEY);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<string[]>(() => loadHistory());
   const [historyFilter, setHistoryFilter] = useState("");
-  const [sentinelVisible, setSentinelVisible] = useState(false);
 
   const composingRef = useRef(false);
   const queryInputRef = useRef<HTMLInputElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const prefillRef = useRef(false);
-  const inFlightRef = useRef(false);
+  const requestEpochRef = useRef(0);
+  const committedQueryRef = useRef(initial.query);
+  const searchSortRef = useRef(initial.sort);
+  const inFlightRef = useRef(new Set<string>());
+  const autoLoadArmedRef = useRef(true);
   const scrollYRef = useRef(initial.scrollY);
   /** Muted until the pending restore is applied, so a stray 0 cannot clobber it. */
   const scrollReadyRef = useRef(!pendingRestore);
@@ -256,14 +225,6 @@ export default function SearchPage(props: {
   useEffect(() => {
     saveBatchSize(batchSize);
   }, [batchSize]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(VIEW_KEY, viewMode);
-    } catch {
-      // ignore
-    }
-  }, [viewMode]);
 
   useEffect(() => {
     const onDown = (ev: MouseEvent) => {
@@ -288,18 +249,34 @@ export default function SearchPage(props: {
       setVisibleCount(Math.min(visibleCount + batchSize, items.length));
       return;
     }
-    if (exhausted || inFlightRef.current) return;
+    if (exhausted) return;
 
-    inFlightRef.current = true;
+    const requestEpoch = requestEpochRef.current;
+    const requestQuery = committedQuery;
+    const requestSort = searchSort;
+    const requestPage = nextServerPage;
+    const requestKey = `${requestEpoch}:${requestQuery}:${requestSort}:${requestPage}`;
+    if (inFlightRef.current.has(requestKey)) return;
+    const isCurrentRequest = () =>
+      requestEpochRef.current === requestEpoch &&
+      committedQueryRef.current === requestQuery &&
+      searchSortRef.current === requestSort;
+    if (!isCurrentRequest()) return;
+
+    inFlightRef.current.add(requestKey);
     setLoading(true);
     setErrorText("");
     try {
       const result = await adapter.fetchPage({
-        query: committedQuery,
-        sort: searchSort,
-        page: nextServerPage,
+        query: requestQuery,
+        sort: requestSort,
+        page: requestPage,
         cookies: props.session.cookies,
       });
+      // A newer search (or a cleared result set) owns the UI now. Ignore this
+      // response completely, including loading and error state.
+      if (!isCurrentRequest()) return;
+
       const pageItems: any[] = result.list;
       const apiTotal = result.total ?? total;
 
@@ -332,14 +309,15 @@ export default function SearchPage(props: {
         setEmptyStreak(0);
       }
     } catch (err) {
+      if (!isCurrentRequest()) return;
       if (isAuthExpiredError(err)) {
         props.onAuthExpired();
       } else {
         setErrorText(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      inFlightRef.current = false;
-      setLoading(false);
+      inFlightRef.current.delete(requestKey);
+      if (isCurrentRequest()) setLoading(false);
     }
   }, [
     adapter,
@@ -356,6 +334,8 @@ export default function SearchPage(props: {
     total,
     visibleCount,
   ]);
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
 
   const runSearch = useCallback(
     (options?: { query?: string; sort?: SortKey }) => {
@@ -367,6 +347,9 @@ export default function SearchPage(props: {
         return;
       }
       const sort = options?.sort ?? searchSort;
+      requestEpochRef.current += 1;
+      committedQueryRef.current = q;
+      searchSortRef.current = sort;
       setCommittedQuery(q);
       setQueryInput(q);
       setSearchSort(sort);
@@ -379,7 +362,8 @@ export default function SearchPage(props: {
       setEmptyStreak(0);
       setExhausted(false);
       setErrorText("");
-      setSentinelVisible(false);
+      setLoading(false);
+      autoLoadArmedRef.current = true;
       setHistoryOpen(false);
       setSearchParams({ q, sort }, { replace: true });
       scrollYRef.current = 0;
@@ -412,49 +396,65 @@ export default function SearchPage(props: {
 
   useEffect(() => {
     if (prefillRef.current) return;
-    let q = "";
-    try {
-      q = localStorage.getItem(PREFILL_KEY) ?? "";
-      if (!q.trim()) return;
-      localStorage.removeItem(PREFILL_KEY);
-    } catch {
-      return;
-    }
+    const q = readStorage(PREFILL_KEY) ?? "";
+    if (!q.trim()) return;
+    removeStorage(PREFILL_KEY);
     prefillRef.current = true;
     setQueryInput(q);
     runSearch({ query: q });
   }, [runSearch]);
 
-  // Reveal the next batch as soon as the bottom sentinel comes into view.
+  /**
+   * One batch per approach to the bottom. IntersectionObserver and scroll events
+   * both feed this latch: either signal can be delayed or missed while results
+   * reflow, but the latch prevents one gesture from revealing several batches.
+   */
+  const tryAutoLoad = useCallback(() => {
+    const el = scrollSentinelRef.current;
+    if (!el) return;
+    const inView =
+      el.getBoundingClientRect().top <= window.innerHeight + SENTINEL_MARGIN_PX;
+    if (!inView) {
+      autoLoadArmedRef.current = true;
+      return;
+    }
+    if (!autoLoadArmedRef.current) return;
+    autoLoadArmedRef.current = false;
+    void loadMoreRef.current();
+  }, []);
+
+  useEffect(() => {
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        tryAutoLoad();
+      });
+    };
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    schedule();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [list.length > 0, tryAutoLoad]);
+
   useEffect(() => {
     const el = scrollSentinelRef.current;
     if (!el) return;
     const io = new IntersectionObserver(
-      (entries) => setSentinelVisible(Boolean(entries[0]?.isIntersecting)),
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) tryAutoLoad();
+        else autoLoadArmedRef.current = true;
+      },
       { rootMargin: `${SENTINEL_MARGIN_PX}px 0px` },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [list.length > 0]);
-
-  /**
-   * The observer notification can arrive after a batch already pushed the
-   * sentinel out of view, so the trigger re-checks the real geometry instead of
-   * trusting a possibly stale flag — otherwise a single scroll can fire two
-   * batches back to back.
-   */
-  const sentinelInView = useCallback(() => {
-    const el = scrollSentinelRef.current;
-    if (!el) return false;
-    const rect = el.getBoundingClientRect();
-    return rect.top <= window.innerHeight + SENTINEL_MARGIN_PX;
-  }, []);
-
-  useEffect(() => {
-    if (!sentinelVisible || loading) return;
-    if (!sentinelInView()) return;
-    void loadMore();
-  }, [loadMore, loading, sentinelInView, sentinelVisible]);
+  }, [list.length > 0, tryAutoLoad]);
 
   // Restore the outgoing scroll offset once the restored results are laid out.
   //
@@ -545,6 +545,8 @@ export default function SearchPage(props: {
   }, []);
 
   const clearResults = useCallback(() => {
+    requestEpochRef.current += 1;
+    committedQueryRef.current = "";
     setItems([]);
     setVisibleCount(0);
     setTotal(null);
@@ -553,8 +555,9 @@ export default function SearchPage(props: {
     setEmptyStreak(0);
     setExhausted(false);
     setErrorText("");
+    setLoading(false);
     setCommittedQuery("");
-    setSentinelVisible(false);
+    autoLoadArmedRef.current = true;
     setSearchParams({}, { replace: true });
     scrollYRef.current = 0;
     saveState({ ...emptyState(), sort: searchSort });
@@ -562,12 +565,7 @@ export default function SearchPage(props: {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-          JM · 检索
-        </div>
-        <h1 className="text-[26px] font-medium leading-none text-zinc-900">搜索</h1>
-      </div>
+      <PageHeader eyebrow="JM · 检索" title="搜索" />
       <div className="font-mono text-[11px] tracking-wide text-zinc-500">
         搜索 ·{" "}
         {committedQuery
@@ -577,7 +575,7 @@ export default function SearchPage(props: {
           : "输入关键词或 AID 开始检索"}
       </div>
 
-      <div className="rounded-lg bg-white p-4">
+      <div className="rounded-lg border border-zinc-200 bg-white p-4">
         <div className="mb-3 text-sm font-medium text-zinc-900">条件</div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
@@ -642,36 +640,37 @@ export default function SearchPage(props: {
                     return (
                       <div className="flex flex-wrap gap-2 p-2">
                         {historyItems.map((h) => (
-                          <button
+                          <div
                             key={h}
-                            type="button"
-                            className="group flex max-w-full items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-1 text-left text-sm text-zinc-900 hover:bg-zinc-50"
-                            onClick={() => {
-                              setQueryInput(h);
-                              setHistoryOpen(false);
-                              runSearch({ query: h });
-                            }}
-                            title={h}
+                            className="group flex max-w-full items-center rounded-full border border-zinc-200 bg-white text-sm text-zinc-900 hover:bg-zinc-50"
                           >
-                            <span className="block max-w-[200px] truncate">{h}</span>
-                            <span className="ml-1 inline-flex h-5 w-5 flex-none items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">
-                              <button
-                                type="button"
-                                className="flex h-5 w-5 items-center justify-center"
-                                aria-label={`删除搜索记录 ${h}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setHistory((prev) => {
-                                    const next = prev.filter((x) => x !== h);
-                                    saveHistory(next);
-                                    return next;
-                                  });
-                                }}
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            </span>
-                          </button>
+                            <button
+                              type="button"
+                              className="min-w-0 flex-1 truncate rounded-l-full py-1 pl-2 pr-1 text-left"
+                              onClick={() => {
+                                setQueryInput(h);
+                                setHistoryOpen(false);
+                                runSearch({ query: h });
+                              }}
+                              title={h}
+                            >
+                              <span className="block max-w-[200px] truncate">{h}</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="mr-1 flex h-5 w-5 flex-none items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                              aria-label={`删除搜索记录 ${h}`}
+                              onClick={() => {
+                                setHistory((prev) => {
+                                  const next = prev.filter((x) => x !== h);
+                                  saveHistory(next);
+                                  return next;
+                                });
+                              }}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         ))}
                       </div>
                     );
@@ -684,7 +683,7 @@ export default function SearchPage(props: {
             type="button"
             className="h-9 rounded-pill border border-zinc-300 px-3.5 text-[13px] hover:bg-zinc-50 disabled:opacity-60"
             onClick={() => void runSearch()}
-            disabled={loading}
+            disabled={!queryInput.trim()}
           >
             搜索
           </button>
@@ -700,7 +699,10 @@ export default function SearchPage(props: {
               if (!isSortKey(next)) return;
               saveSort(next);
               setSearchSort(next);
-              if (committedQuery.trim()) runSearch({ sort: next, query: committedQuery });
+              searchSortRef.current = next;
+              if (committedQuery.trim()) {
+                runSearch({ sort: next, query: committedQuery });
+              }
             }}
           >
             {adapter.sorts.map((option) => (
@@ -749,24 +751,37 @@ export default function SearchPage(props: {
         </div>
 
         {errorText ? (
-          <div className="mt-3 rounded-md border border-zinc-200 bg-white p-2 text-sm text-red-600">
-            {errorText}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <span className="min-w-0 flex-1">{errorText}</span>
+            <button
+              type="button"
+              className="h-8 rounded-pill border border-red-200 bg-white px-3 text-xs font-medium hover:bg-red-100"
+              onClick={() => void loadMore()}
+              disabled={loading || exhausted}
+            >
+              重试
+            </button>
           </div>
         ) : null}
       </div>
 
-      <div className="rounded-lg bg-white p-4">
+      <div className="rounded-lg border border-zinc-200 bg-white p-4">
         <div className="mb-3 flex items-center justify-between gap-2 text-sm font-medium text-zinc-900">
           <div>结果</div>
           <ListViewToggle value={viewMode} onChange={setViewMode} />
         </div>
-        {viewMode === "card" ? (
+        {!list.length && !loading ? (
+          <EmptyState
+            compact
+            title="暂无结果"
+            description={
+              committedQuery
+                ? "换个关键词、排序方式，或稍后再试。"
+                : "输入关键词或 AID 后开始检索。"
+            }
+          />
+        ) : viewMode === "card" ? (
           <div className="mt-3">
-            {!list.length && !loading ? (
-              <div className="rounded-md border border-dashed border-zinc-200 p-3 text-center text-sm text-zinc-500">
-                暂无结果
-              </div>
-            ) : null}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {list.map((item, idx) => {
                 const aid = adapter.itemId(item);
@@ -776,7 +791,7 @@ export default function SearchPage(props: {
                 return (
                   <div
                     key={`${aid}-${idx}`}
-                    className="flex flex-col overflow-hidden rounded-md border border-zinc-200 bg-white"
+                    className="flex flex-col overflow-hidden rounded-md border border-zinc-200 bg-surface"
                   >
                     <button
                       type="button"
@@ -822,7 +837,7 @@ export default function SearchPage(props: {
               return (
                 <div
                   key={`${aid}-${idx}`}
-                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2"
+                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-surface px-3 py-2"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="relative h-16 w-12 flex-none overflow-hidden rounded bg-zinc-100">
@@ -846,7 +861,7 @@ export default function SearchPage(props: {
                   </div>
                   <button
                     type="button"
-                    className="h-8 flex-none rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    className="h-8 flex-none rounded-md border border-zinc-200 bg-surface px-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
                     onClick={() => openResult(item)}
                     disabled={!aid}
                   >
@@ -855,7 +870,6 @@ export default function SearchPage(props: {
                 </div>
               );
             })}
-            {!list.length && !loading ? <div className="text-sm text-zinc-600">暂无结果</div> : null}
           </div>
         )}
 

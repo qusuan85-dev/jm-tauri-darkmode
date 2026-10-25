@@ -22,7 +22,7 @@
    * by hairlines and by one recessed panel tone — not by stacked grey boxes. */
   --jm-surface: 255 255 255; /* cards, popovers, toolbars (`bg-white`)        */
   --jm-zinc-50: 247 247 247; /* inset panels + hover/selected feedback        */
-  --jm-zinc-100: 255 255 255; /* window background                            */
+  --jm-zinc-100: 244 244 245; /* window background                            */
   --jm-hairline: 232 232 235; /* extra-subtle separators                     */
 
   /* Neutral scale — four text levels: 900 ink / 700 body / 500 mute / 400 faint */
@@ -54,25 +54,25 @@
 .dark {
   color-scheme: dark;
 
-  /* Near-black canvas: the window sits at #0A0A0A, raised panels lift to
-     #131317 and cards to #1A1A1A. The content — not the chrome — carries the
+  /* Near-black canvas: the window sits at #09090B, raised panels lift to
+     #131317 and cards to #18181B. The content — not the chrome — carries the
      page, which is the whole point of a reader. Cards sit one step above the
      window; `zinc-50` stays the *recessive* tone it is in light mode, so
      insets keep reading as insets and `hover:bg-zinc-50` keeps its delta. */
-  --jm-surface: 26 26 26;
+  --jm-surface: 24 24 27;
   --jm-zinc-50: 19 19 23;
-  --jm-zinc-100: 10 10 10;
-  --jm-hairline: 33 34 38;
+  --jm-zinc-100: 9 9 11;
+  --jm-hairline: 45 45 51;
 
-  --jm-zinc-200: 33 34 38;
+  --jm-zinc-200: 45 45 51;
   --jm-zinc-300: 54 59 64;
   --jm-zinc-400: 84 89 94;
   --jm-zinc-500: 125 130 135;
   --jm-zinc-600: 161 161 170;
   --jm-zinc-700: 219 219 224;
   --jm-zinc-800: 244 244 245;
-  --jm-zinc-900: 255 255 255;
-  --jm-zinc-950: 255 255 255;
+  --jm-zinc-900: 244 244 245;
+  --jm-zinc-950: 244 244 245;
 
   --jm-glass-alpha: 0.62;
   --jm-glass-line-alpha: 0.14;
@@ -185,6 +185,24 @@ body,
 }
 
 @layer base {
+  body {
+    background-color: rgb(var(--jm-zinc-100));
+    color: rgb(var(--jm-zinc-900));
+    font-family:
+      "Noto Sans SC", "MiSans", "HarmonyOS Sans SC", "Microsoft YaHei UI",
+      "PingFang SC", sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background-color: rgb(var(--jm-accent) / 0.22);
+    color: rgb(var(--jm-zinc-900));
+  }
+
   /* Keep the window / overscroll area on the page colour so no light strip
      flashes behind the app in dark mode. */
   html {
@@ -336,6 +354,32 @@ body,
 
 .mobile-bottom-nav {
   bottom: calc(var(--safe-area-bottom, 0px) + 0.5rem);
+}
+
+@keyframes jm-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.jm-toast-in {
+  animation: jm-toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @media (min-width: 768px) {

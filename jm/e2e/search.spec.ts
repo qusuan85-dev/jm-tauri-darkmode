@@ -157,3 +157,36 @@ test("清空结果后不再保留上一次搜索", async ({ page }) => {
   await page.getByRole("link", { name: /搜索/ }).click();
   await expect(resultRows(page)).toHaveCount(0);
 });
+
+test("较慢的旧搜索不会覆盖新搜索结果或加载状态", async ({ page }) => {
+  await installTauriMock(page, {
+    searchItemsByQuery: {
+      alpha: [{ id: "1", name: "Slow Alpha", author: "A" }],
+      beta: [{ id: "2", name: "Fast Beta", author: "B" }],
+    },
+    searchDelayByQuery: { alpha: 800, beta: 50 },
+  });
+  await page.goto("/#/home/search");
+
+  await searchFor(page, "alpha");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        ((window as any).__mockInvokeCalls as Array<{ cmd: string; args?: { searchQuery?: string } }>)
+          .filter((call) => call.cmd === "api_search")
+          .some((call) => call.args?.searchQuery === "alpha"),
+      ),
+    )
+    .toBe(true);
+
+  await searchFor(page, "beta");
+  await expect(page.getByText("Fast Beta", { exact: true })).toBeVisible();
+  await expect(page.getByText("加载中…", { exact: true })).toHaveCount(0);
+
+  // The first request resolves later; its response must be ignored completely.
+  await page.waitForTimeout(1_000);
+  await expect(page.getByText("Slow Alpha", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Fast Beta", { exact: true })).toBeVisible();
+  await expect(page.getByText("加载中…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "重试", exact: true })).toHaveCount(0);
+});

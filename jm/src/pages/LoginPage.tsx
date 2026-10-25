@@ -1,9 +1,19 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  BookOpen,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Loader2,
+  LockKeyhole,
+  WifiOff,
+} from "lucide-react";
 
 import type { LoginResult, Session } from "../auth/session";
 import { saveSession } from "../auth/session";
+import { decodeUtf8Base64, encodeUtf8Base64 } from "../utils/utf8Base64";
 
 type TabKey = "login" | "register" | "verify" | "proxy";
 
@@ -50,7 +60,7 @@ function saveRegisterBase(base: string) {
 function Field(props: { label: string; children: ReactNode }): ReactNode {
   return (
     <label className="flex flex-col gap-2">
-      <div className="text-sm text-zinc-700">{props.label}</div>
+      <span className="text-[13px] font-medium text-zinc-700">{props.label}</span>
       {props.children}
     </label>
   );
@@ -61,24 +71,32 @@ function TextInput(props: ComponentPropsWithoutRef<"input">) {
     <input
       {...props}
       className={[
-        "h-10 rounded-pill border border-zinc-300 px-3.5 text-[13px] text-zinc-900",
+        "h-11 rounded-pill border border-zinc-300 bg-white px-4 text-sm text-zinc-900",
         "placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-200",
+        "disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-500",
         props.className ?? "",
       ].join(" ")}
     />
   );
 }
 
-function PrimaryButton(props: ComponentPropsWithoutRef<"button">) {
+function PrimaryButton(
+  props: ComponentPropsWithoutRef<"button"> & { loading?: boolean },
+) {
+  const { loading, disabled, children, className, ...rest } = props;
   return (
     <button
-      {...props}
+      {...rest}
+      disabled={disabled || loading}
       className={[
-        "h-[30px] w-[150px] rounded-md border border-zinc-200 bg-zinc-900 text-sm font-medium text-white",
-        "hover:bg-zinc-800 active:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-60",
-        props.className ?? "",
+        "inline-flex h-11 w-full items-center justify-center gap-2 rounded-pill border border-zinc-200 bg-zinc-900 px-5 text-sm font-medium text-white",
+        "transition-colors hover:bg-zinc-800 active:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-60",
+        className ?? "",
       ].join(" ")}
-    />
+    >
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+      {children}
+    </button>
   );
 }
 
@@ -87,14 +105,6 @@ function Divider() {
 }
 
 function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
-  const encodeUtf8Base64 = useCallback((s: string) => {
-    return window.btoa(unescape(encodeURIComponent(s)));
-  }, []);
-
-  const decodeUtf8Base64 = useCallback((s: string) => {
-    return decodeURIComponent(escape(window.atob(s)));
-  }, []);
-
   const [savePassword, setSavePassword] = useState(() => {
     try {
       const v = localStorage.getItem("jm_save_password");
@@ -116,7 +126,7 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
 
   const [loginPassword, setLoginPassword] = useState(() => {
     try {
-      if (!savePassword) return "";
+      if (localStorage.getItem("jm_save_password") === "0") return "";
       const v = localStorage.getItem("jm_login_password_b64");
       if (!v) return "";
       return decodeUtf8Base64(v);
@@ -136,7 +146,10 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
       return true;
     }
   });
-  const [loginStatus, setLoginStatus] = useState<string>("");
+  const [loginFeedback, setLoginFeedback] = useState<{
+    tone: "loading" | "success" | "error";
+    text: string;
+  } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginResult, setLoginResult] = useState<LoginResult | null>(null);
 
@@ -160,86 +173,109 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
       // ignore
     }
     props.onLoggedIn(session);
-  }, [props]);
+  }, [props.onLoggedIn]);
 
-  const onLogin = useCallback(() => {
-    const doLogin = async () => {
-      if (!loginUsername.trim() || !loginPassword) {
-        setLoginStatus("请输入用户名和密码");
-        return;
-      }
-      setIsSubmitting(true);
-      setLoginStatus("登录中…");
-      setLoginResult(null);
+  const onLogin = useCallback(async () => {
+    const username = loginUsername.trim();
+    if (!username || !loginPassword) {
+      setLoginFeedback({ tone: "error", text: "请输入用户名和密码" });
+      return;
+    }
+    setIsSubmitting(true);
+    setLoginFeedback({ tone: "loading", text: "正在验证账号…" });
+    setLoginResult(null);
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke<LoginResult>("login", {
+        username,
+        password: loginPassword,
+      });
+      setLoginResult(result);
+      setLoginFeedback({
+        tone: "success",
+        text: `登录成功：${result.user.username}（LV${result.user.level}）`,
+      });
 
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const result = await invoke<LoginResult>("login", {
-          username: loginUsername,
-          password: loginPassword,
-        });
-        setLoginResult(result);
-        setLoginStatus(`登录成功：${result.user.username}（LV${result.user.level}）`);
-
-        try {
-          localStorage.setItem("jm_login_username", loginUsername);
-          localStorage.setItem("jm_save_password", savePassword ? "1" : "0");
-          localStorage.setItem("jm_auto_login", autoLogin ? "1" : "0");
-          if (savePassword) {
-            localStorage.setItem(
-              "jm_login_password_b64",
-              encodeUtf8Base64(loginPassword),
-            );
-          } else {
-            localStorage.removeItem("jm_login_password_b64");
-          }
-        } catch {
-          // ignore persistence errors
+        localStorage.setItem("jm_login_username", username);
+        localStorage.setItem("jm_save_password", savePassword ? "1" : "0");
+        localStorage.setItem("jm_auto_login", autoLogin && savePassword ? "1" : "0");
+        if (savePassword) {
+          localStorage.setItem("jm_login_password_b64", encodeUtf8Base64(loginPassword));
+        } else {
+          localStorage.removeItem("jm_login_password_b64");
         }
-
-        try {
-          const session: Session = { ...result, savedAt: Date.now() };
-          saveSession(session);
-          props.onLoggedIn(session);
-        } catch {
-          // ignore
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setLoginStatus(`登录失败：${msg}`);
-      } finally {
-        setIsSubmitting(false);
+      } catch {
+        // ignore persistence errors
       }
-    };
 
-    void doLogin();
-  }, [loginPassword, loginUsername]);
+      const session: Session = { ...result, savedAt: Date.now() };
+      saveSession(session);
+      props.onLoggedIn(session);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLoginFeedback({ tone: "error", text: `登录失败：${msg}` });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [autoLogin, loginPassword, loginUsername, props.onLoggedIn, savePassword]);
+
+  const feedbackTone = loginFeedback?.tone;
+  const feedbackClass =
+    feedbackTone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : feedbackTone === "error"
+        ? "border-red-200 bg-red-50 text-red-700"
+        : "border-zinc-200 bg-zinc-50 text-zinc-600";
+
   return (
-    <div className="flex min-h-[230px] flex-col gap-3">
-      <div className="flex-1" />
+    <form
+      className="flex min-h-[310px] flex-col gap-3.5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onLogin();
+      }}
+    >
+      <div className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs leading-5 text-zinc-600">
+        <WifiOff className="mt-0.5 h-3.5 w-3.5 flex-none text-zinc-500" />
+        <span>如果无法连接或看图，请切换到「分流」选择其他线路。</span>
+      </div>
 
-      <p className="text-sm text-zinc-700">
-        如果不能连接和看图，请尝试选择其他分流。
-      </p>
-
-      {loginStatus ? (
-        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2 text-sm text-red-400">
-          {loginStatus}
+      {loginFeedback ? (
+        <div
+          className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${feedbackClass}`}
+          role={feedbackTone === "error" ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {feedbackTone === "success" ? (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 flex-none" />
+          ) : feedbackTone === "error" ? (
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-none" />
+          ) : (
+            <Loader2 className="mt-0.5 h-4 w-4 flex-none animate-spin" />
+          )}
+          <span>{loginFeedback.text}</span>
         </div>
       ) : null}
 
       {loginResult ? (
-        <div className="rounded-md border border-zinc-200 bg-white p-2 text-sm text-zinc-800">
-          <div>UID：{String(loginResult.user.uid)}</div>
-          <div>Cookies：{Object.keys(loginResult.cookies).length}</div>
+        <div className="grid grid-cols-2 gap-2 rounded-lg border border-zinc-200 bg-white p-3 font-mono text-[11px] text-zinc-600">
+          <div>UID · {String(loginResult.user.uid)}</div>
+          <div>COOKIES · {Object.keys(loginResult.cookies).length}</div>
         </div>
       ) : null}
 
       <Field label="用户名">
         <TextInput
+          name="username"
           value={loginUsername}
           onChange={(e) => setLoginUsername(e.currentTarget.value)}
           autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          placeholder="输入 JM 用户名"
+          aria-invalid={feedbackTone === "error"}
           disabled={isSubmitting}
         />
       </Field>
@@ -247,10 +283,13 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
       <Field label="密码">
         <div className="relative w-full">
           <TextInput
+            name="password"
             type={showPassword ? "text" : "password"}
             value={loginPassword}
             onChange={(e) => setLoginPassword(e.currentTarget.value)}
             autoComplete="current-password"
+            placeholder="输入密码"
+            aria-invalid={feedbackTone === "error"}
             disabled={isSubmitting}
             className="w-full pr-10"
           />
@@ -265,7 +304,7 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
         </div>
       </Field>
 
-      <div className="flex flex-wrap gap-x-6 gap-y-2 pt-1 text-sm text-zinc-800">
+      <div className="flex flex-wrap gap-x-6 gap-y-2 pt-0.5 text-sm text-zinc-800">
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -276,6 +315,10 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
               try {
                 localStorage.setItem("jm_save_password", next ? "1" : "0");
                 if (!next) localStorage.removeItem("jm_login_password_b64");
+                if (!next) {
+                  setAutoLogin(false);
+                  localStorage.setItem("jm_auto_login", "0");
+                }
               } catch {
                 // ignore
               }
@@ -297,30 +340,31 @@ function LoginTab(props: { onLoggedIn: (session: Session) => void }) {
                 // ignore
               }
             }}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !savePassword}
           />
-          自动登录
+          <span className={!savePassword ? "text-zinc-400" : undefined}>自动登录</span>
         </label>
       </div>
 
-      <div className="flex-1" />
-
-      <div className="flex items-center justify-center">
-        <PrimaryButton type="button" onClick={onLogin} disabled={isSubmitting}>
-          登录
-        </PrimaryButton>
+      <div className="flex items-center gap-1.5 text-[11px] leading-5 text-zinc-500">
+        <LockKeyhole className="h-3.5 w-3.5 flex-none" />
+        凭据只保存在本机；关闭「保存密码」后不会自动登录。
       </div>
-      <div className="flex items-center justify-center">
+
+      <div className="mt-auto flex flex-col items-center gap-3 pt-1">
+        <PrimaryButton type="submit" loading={isSubmitting}>
+          {isSubmitting ? "登录中…" : "登录"}
+        </PrimaryButton>
         <button
           type="button"
-          className="text-xs text-blue-600 underline underline-offset-2 hover:text-blue-500"
+          className="text-xs font-medium text-blue-600 underline decoration-blue-600/30 underline-offset-4 hover:text-blue-500"
           onClick={onSkipLogin}
           disabled={isSubmitting}
         >
           跳过登录
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -350,7 +394,7 @@ function RegisterTab() {
     } finally {
       setCaptchaLoading(false);
     }
-  }, []);
+  }, [webBase]);
 
   const onRegister = useCallback(async () => {
     const cleanEmail = email.trim();
@@ -430,7 +474,6 @@ function RegisterTab() {
             const next = e.currentTarget.value;
             setWebBase(next);
             saveRegisterBase(next);
-            void loadCaptcha();
           }}
         >
           {REGISTER_WEB_BASES.map((url) => (
@@ -510,7 +553,11 @@ function RegisterTab() {
       ) : null}
 
       <div className="flex items-center justify-center pt-2">
-        <PrimaryButton type="button" onClick={onRegister} disabled={registerLoading}>
+        <PrimaryButton
+          type="button"
+          onClick={onRegister}
+          loading={registerLoading}
+        >
           注册
         </PrimaryButton>
       </div>
@@ -992,6 +1039,7 @@ function ProxyTab() {
 
 export default function LoginPage(props: { onLoggedIn: (session: Session) => void }) {
   const [active, setActive] = useState<TabKey>("login");
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const content = useMemo(() => {
     switch (active) {
@@ -1008,28 +1056,104 @@ export default function LoginPage(props: { onLoggedIn: (session: Session) => voi
     }
   }, [active, props.onLoggedIn]);
 
-  return (
-    <div className="safe-area-top flex min-h-screen items-center justify-center bg-zinc-100 p-4 text-zinc-900 sm:p-6">
-      <div className="flex min-h-[360px] w-full min-w-0 max-w-[500px] flex-col rounded-xl bg-white">
-        <div className="px-4 pt-6">
-          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-            JM COMIC READER
-          </div>
-          <h1 className="text-[34px] font-medium leading-none text-zinc-900">登录</h1>
-        </div>
+  const moveTabFocus = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+      let nextIndex = index;
+      if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+      else if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = tabs.length - 1;
+      else return;
 
-        <div className="px-4 pt-5">
-          <div className="flex h-9 items-stretch rounded-pill bg-zinc-50 p-[3px]">
-            {tabs.map((tab) => {
+      event.preventDefault();
+      const next = tabs[nextIndex];
+      setActive(next.key);
+      tabRefs.current[nextIndex]?.focus();
+    },
+    [],
+  );
+
+  return (
+    <div className="safe-area-top relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-100 p-4 text-zinc-900 sm:p-6">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-70"
+        aria-hidden="true"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 15% 15%, rgb(var(--jm-accent) / 0.12), transparent 30%), radial-gradient(circle at 85% 85%, rgb(var(--jm-accent) / 0.08), transparent 28%)",
+        }}
+      />
+
+      <div className="relative grid w-full max-w-[920px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_24px_80px_-44px_rgba(0,0,0,0.45)] lg:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
+        <aside className="hidden min-h-[620px] flex-col justify-between bg-zinc-900 p-8 text-white lg:flex">
+          <div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-white/10">
+              <BookOpen className="h-5 w-5" />
+            </div>
+            <div className="mt-10 font-mono text-[10px] uppercase tracking-[0.2em] text-white/55">
+              JM COMIC READER
+            </div>
+            <h1 className="mt-3 max-w-[230px] text-[34px] font-medium leading-[1.08]">
+              把阅读，
+              <br />
+              留给自己。
+            </h1>
+            <p className="mt-5 max-w-[250px] text-sm leading-6 text-white/65">
+              登录后同步收藏、阅读进度与签到状态。凭据只保存在本机，可随时关闭自动登录。
+            </p>
+          </div>
+          <div className="border-t border-white/10 pt-5">
+            <div className="flex items-center gap-2 text-xs text-white/55">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              本地优先 · 隐私可控 · 自动恢复会话
+            </div>
+          </div>
+        </aside>
+
+        <section className="flex min-h-[520px] min-w-0 flex-col px-4 pb-5 pt-6 sm:px-6 lg:min-h-[620px] lg:px-8 lg:pb-7 lg:pt-8">
+          <div className="flex items-center gap-2 lg:hidden">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-white">
+              <BookOpen className="h-4 w-4" />
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+              JM COMIC READER
+            </span>
+          </div>
+
+          <div className="mt-7 lg:mt-0">
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+              ACCOUNT
+            </div>
+            <h2 className="text-[30px] font-medium leading-none text-zinc-900">账号中心</h2>
+            <p className="mt-2 text-sm text-zinc-500">登录、注册或调整连接线路。</p>
+          </div>
+
+          <div
+            className="mt-6 flex h-10 items-stretch rounded-pill border border-zinc-200 bg-zinc-50 p-[3px]"
+            role="tablist"
+            aria-label="账号功能"
+          >
+            {tabs.map((tab, index) => {
               const isActive = tab.key === active;
               return (
                 <button
                   key={tab.key}
+                  ref={(node) => {
+                    tabRefs.current[index] = node;
+                  }}
+                  id={`login-tab-${tab.key}`}
                   type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`login-panel-${tab.key}`}
+                  tabIndex={isActive ? 0 : -1}
                   onClick={() => setActive(tab.key)}
+                  onKeyDown={(event) => moveTabFocus(event, index)}
                   className={[
                     "flex flex-1 items-center justify-center rounded-pill px-3 text-[13px] transition-colors",
-                    isActive ? "bg-surface font-medium text-zinc-900" : "text-zinc-500",
+                    isActive
+                      ? "bg-surface font-medium text-zinc-900 shadow-sm"
+                      : "text-zinc-500 hover:text-zinc-800",
                   ].join(" ")}
                 >
                   {tab.title}
@@ -1037,10 +1161,16 @@ export default function LoginPage(props: { onLoggedIn: (session: Session) => voi
               );
             })}
           </div>
-        </div>
 
-        <div className="flex-1 px-4 py-4">{content}</div>
-
+          <div
+            id={`login-panel-${active}`}
+            role="tabpanel"
+            aria-labelledby={`login-tab-${active}`}
+            className="mt-4 flex min-h-0 flex-1 flex-col"
+          >
+            {content}
+          </div>
+        </section>
       </div>
     </div>
   );

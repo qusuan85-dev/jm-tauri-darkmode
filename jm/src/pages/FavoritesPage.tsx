@@ -12,6 +12,7 @@ import ShelfTabs from "../components/ShelfTabs";
 import Loading from "../components/Loading";
 import { useToast } from "../components/Toast";
 import { getImgBase } from "../config/endpoints";
+import { usePersistedViewMode } from "../hooks/usePersistedViewMode";
 import { getReadProgress } from "../reading/progress";
 
 type FavoriteSort = "mr" | "mp";
@@ -51,14 +52,7 @@ export default function FavoritesPage(props: {
   ) => void;
 }) {
   const viewKey = "jm_view_favorites";
-  const [viewMode, setViewMode] = useState<"list" | "card">(() => {
-    try {
-      const v = localStorage.getItem(viewKey);
-      return v === "card" ? "card" : "list";
-    } catch {
-      return "list";
-    }
-  });
+  const [viewMode, setViewMode] = usePersistedViewMode(viewKey);
 
   /**
    * 当前收藏夹 / 页码 / 排序放在 URL 里。
@@ -103,14 +97,6 @@ export default function FavoritesPage(props: {
   const [movePanelOpen, setMovePanelOpen] = useState(false);
   const [selectAllBusy, setSelectAllBusy] = useState(false);
   const { showToast } = useToast();
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(viewKey, viewMode);
-    } catch {
-      // ignore
-    }
-  }, [viewMode, viewKey]);
 
   const {
     data: favoriteData,
@@ -455,7 +441,7 @@ export default function FavoritesPage(props: {
     <div className="flex min-w-0 flex-col gap-3">
       <ShelfTabs />
       <div className="font-mono text-[11px] tracking-wide text-zinc-500">
-        收藏(在线) · {header}
+        在线收藏 · {header}
       </div>
 
       <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
